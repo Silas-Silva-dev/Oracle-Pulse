@@ -16,7 +16,7 @@
 
 ## 📖 About the project
 
-**Oracle Pulse** is a web-based monitoring and administration dashboard designed for **Oracle Database** environments (performance, active sessions, locks, SGA/PGA memory, tablespace/OS disk storage, backup/recovery, and security auditing). Developed by **Silas Silva**, it features **real-time metrics**, **interactive execution plans (`DBMS_XPLAN`)**, **remote OS disk inspection via SSH**, **threshold alert notifications**, **role-based access control (DBA & Viewer)**, **dark mode UI**, and a **built-in DEMO mode** for simulation without connecting to a live database.
+**Oracle Pulse** is a web-based monitoring and administration dashboard designed for **Oracle Database** environments (performance, active sessions, locks, SGA/PGA memory, tablespace/OS disk storage, backup/recovery, and security auditing). Developed by **Silas Silva** for the client **C&S Sistemas**, it features **real-time metrics**, **interactive execution plans (`DBMS_XPLAN`)**, **remote OS disk inspection via SSH**, **threshold alert notifications**, **role-based access control (DBA & Viewer)**, **dark mode UI**, and a **built-in DEMO mode** for simulation without connecting to a live database.
 
 ---
 
@@ -188,7 +188,7 @@ docker run -p 3000:3000 --env-file .env oracle-pulse
 
 ## 👨‍💻 Developer
 
-Developed by **Silas Silva**.
+Developed by **Silas Silva** for **C&S Sistemas**.
 
 ---
 
