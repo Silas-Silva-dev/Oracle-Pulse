@@ -33,6 +33,30 @@
 
 ---
 
+## 🖼️ Screenshots
+
+| System Dashboard | Performance Analytics |
+| :---: | :---: |
+| ![System Dashboard](Screenshots/1.png) | ![Performance Analytics](Screenshots/2.png) |
+
+| Storage Management | Storage Actions & Datafiles |
+| :---: | :---: |
+| ![Storage Management](Screenshots/3.png) | ![Storage Actions](Screenshots/4.png) |
+
+| Locks & Session Management | Memory Optimization |
+| :---: | :---: |
+| ![Locks & Session Management](Screenshots/5.png) | ![Memory Optimization](Screenshots/6.png) |
+
+| Memory Advisors (PGA & SGA) | Backup & RMAN Configuration |
+| :---: | :---: |
+| ![Memory Advisors](Screenshots/7.png) | ![Backup & RMAN Configuration](Screenshots/8.png) |
+
+| Audit Trail & Backup History |
+| :---: |
+| ![Audit Trail & Backup History](Screenshots/9.png) |
+
+---
+
 ## 🛠️ Technologies
 
 | Layer | Stack |
