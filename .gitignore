@@ -1,0 +1,21 @@
+# Dependências
+node_modules/
+
+# Segredos e configuração local — NUNCA versionar
+.env
+.env.local
+*.env
+
+# Logs gerados em runtime
+logs/
+*.log
+
+# Binários / instaladores
+Arquivos/*.msi
+
+# Artefatos de SO / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
+.claude/

@@ -1,0 +1,28 @@
+{
+  "name": "oracle-pulse",
+  "version": "2.0.0",
+  "description": "Painel de monitoramento Oracle (performance, sessões, storage, backup)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "demo": "node -e \"process.env.DEMO_MODE='true';require('./server.js')\"",
+    "hash": "node bin/hash-password.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "oracle",
+    "monitoring",
+    "dba",
+    "dashboard"
+  ],
+  "author": "Silas Silva",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^4.21.1",
+    "node-ssh": "^13.2.1",
+    "oracledb": "^6.10.0"
+  }
+}

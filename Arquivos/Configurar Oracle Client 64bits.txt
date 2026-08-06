@@ -1,0 +1,12 @@
+Fazer a instalação e configuração do oracle client 19c 64bits e depois seguir os passos abaixo.
+------------------------------------------------------------
+Executar esses comando pelo CMD como Administrador:
+------------------------------------------------------------
+cd C:\oracle64\product\19.0.0\client_1\ODP.NET\bin\4\
+------------------------------------------------------------
+OraProvCfg.exe /action:gac /providerpath:C:\oracle64\product\19.0.0\client_1\ODP.NET\bin\4\Oracle.DataAccess.dll
+------------------------------------------------------------
+OraProvCfg.exe /action:config /force /product:odp /frameworkversion:v4.0.30319 /providerpath:C:\oracle64\product\19.0.0\client_1\ODP.NET\bin\4\Oracle.DataAccess.dll
+------------------------------------------------------------
+Obs.: O primeiro comando é para acessar a pasta do oracle client 64bits, corrija caso seja diferente.
+
