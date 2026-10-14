@@ -1,0 +1,36 @@
+<!--
+  Configuração do serviço Windows do Oracle Pulse (WinSW 2.12).
+  %BASE% = pasta deste arquivo ({app}\service). Caminhos relativos a ela, para
+  que a instalação funcione em qualquer pasta escolhida no instalador.
+  O .env é lido do diretório de trabalho (pasta da aplicação).
+-->
+<service>
+  <id>OraclePulse</id>
+  <name>Oracle Pulse</name>
+  <description>Oracle Pulse - painel web de monitoramento e administração do banco Oracle.</description>
+
+  <executable>%BASE%\..\runtime\node.exe</executable>
+  <arguments>"%BASE%\..\server.js"</arguments>
+  <workingdirectory>%BASE%\..</workingdirectory>
+
+  <startmode>Automatic</startmode>
+  <delayedAutoStart/>
+
+  <!-- Reinicia sozinho se o processo cair (10s, 30s, 60s; zera a contagem após 1h). -->
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+
+  <!-- Ctrl+C para o Node fechar o pool Oracle com calma antes de encerrar. -->
+  <stoptimeout>20 sec</stoptimeout>
+
+  <!-- Saída do console (logs da aplicação) em logs\OraclePulse.out.log / .err.log -->
+  <logpath>%BASE%\..\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+
+  <env name="NODE_ENV" value="production"/>
+</service>

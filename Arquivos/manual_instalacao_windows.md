@@ -1,5 +1,19 @@
 # Manual de Instalação - Oracle Pulse (Windows)
 
+## Instalação automática (recomendado)
+
+Execute `OraclePulse-Setup-<versão>.exe` como **Administrador**. O instalador:
+
+- já inclui o Node.js;
+- pede os dados obrigatórios do `.env` (banco Oracle e senha do painel);
+- registra o serviço do Windows **OraclePulse** (início automático, sem PM2);
+- libera a porta no firewall;
+- testa a conexão com o Oracle ao final.
+
+Para atualizar, execute a versão nova por cima: a configuração existente é mantida. Detalhes, instalação silenciosa e como gerar o instalador estão em [installer/README.md](../installer/README.md).
+
+## Instalação manual
+
 Este guia detalha o passo a passo para instalar e configurar o **Oracle Pulse**, sistema de monitoramento de banco de dados, em ambiente Windows. A aplicação é composta por um servidor Node.js (Express) que serve tanto a API de monitoramento quanto a interface estática.
 
 ## 1. Instalar o Node.js

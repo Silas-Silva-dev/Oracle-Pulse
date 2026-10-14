@@ -103,4 +103,28 @@ function getRecent(limit = 100) {
     return recent.slice(-limit).reverse();
 }
 
-module.exports = { record, getRecent, ipOf };
+/**
+ * Zera a trilha (audit.log e audit.log.1) e a memória. Quem chama registra a
+ * limpeza logo em seguida: a nova trilha começa por ela.
+ * @returns {{files:number, bytes:number}}
+ */
+function clear() {
+    let files = 0;
+    let bytes = 0;
+    for (const file of [archiveFile, auditFile]) {
+        try {
+            if (!fs.existsSync(file)) continue;
+            bytes += fs.statSync(file).size;
+            fs.unlinkSync(file);
+            files++;
+        } catch (err) {
+            // Arquivo preso (Windows): zera o conteúdo.
+            try { fs.truncateSync(file, 0); files++; } catch { logger.warn(`Não foi possível limpar ${path.basename(file)}:`, err.message); }
+        }
+    }
+    recent.length = 0;
+    currentBytes = 0;
+    return { files, bytes };
+}
+
+module.exports = { record, getRecent, ipOf, clear };

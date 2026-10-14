@@ -1,0 +1,8 @@
+SQL> RECOVER DATABASE UNTIL CANCEL
+SP2-0640: Not connected
+Media recovery complete.
+SP2-0042: unknown command "AUTO" - rest of line ignored.
+SQL> RECOVER DATABASE UNTIL CANCEL
+SP2-0640: Not connected
+Media recovery complete.
+SP2-0042: unknown command "CANCEL" - rest of line ignored.

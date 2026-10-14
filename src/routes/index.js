@@ -14,6 +14,11 @@ const monitoringRoutes = require('./monitoring.routes');
 const memoryRoutes = require('./memory.routes');
 const backupConfigRoutes = require('./backupConfig.routes');
 const sqlRoutes = require('./sql.routes');
+const timeRoutes = require('./time.routes');
+const recoveryRoutes = require('./recovery.routes');
+const protectionRoutes = require('./protection.routes');
+const terminalRoutes = require('./terminal.routes');
+const aboutRoutes = require('./about.routes');
 
 const router = express.Router();
 
@@ -30,5 +35,10 @@ router.use('/', monitoringRoutes);
 router.use('/', memoryRoutes);
 router.use('/', backupConfigRoutes);
 router.use('/', sqlRoutes);
+router.use('/', timeRoutes);
+router.use('/', recoveryRoutes);
+router.use('/', protectionRoutes);
+router.use('/', terminalRoutes);
+router.use('/', aboutRoutes);
 
 module.exports = router;

@@ -36,7 +36,7 @@ function startSampler() {
     if (config.demoMode) return;
     const intervalMs = 30 * 1000;
     samplerId = setInterval(() => {
-        dashboardService.collect().catch((err) => logger.warn('Sampler falhou:', err.message));
+        dashboardService.sample().catch((err) => logger.warn('Sampler falhou:', err.message));
     }, intervalMs);
     if (samplerId.unref) samplerId.unref();
 }
@@ -52,6 +52,8 @@ const server = app.listen(config.port, async () => {
         }
         startSampler();
     }
+    // Guardião da FRA + acompanhamento dos backups agendados (também no DEMO, simulado).
+    require('./src/fraGuard').start();
     logger.info(`Oracle Pulse Dashboard rodando em http://localhost:${config.port}`);
     logger.info(`Modo: ${mode}`);
 });
@@ -65,6 +67,7 @@ async function shutdown(signal) {
     if (samplerId) clearInterval(samplerId);
     server.close(() => logger.info('Servidor HTTP encerrado.'));
     try {
+        try { require('./src/osDisk').closeSsh(); } catch { /* ignore */ }
         await db.closePool();
     } finally {
         process.exit(0);

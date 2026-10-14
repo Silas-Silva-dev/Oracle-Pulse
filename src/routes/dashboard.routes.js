@@ -13,7 +13,7 @@ const router = express.Router();
 
 router.get('/health', async (req, res) => {
     try {
-        const status = await cache.cached('health', 3000, () => runQuery('instanceStatus'));
+        const status = await cache.cached('health', 5000, () => runQuery('instanceStatus'));
         res.json({
             success: true,
             data: status[0],

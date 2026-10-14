@@ -1,0 +1,105 @@
+/**
+ * PROTECTION.CSS - Tela Backup: backups agendados + guardião da FRA.
+ */
+
+.txt-ok { color: #047857; font-weight: 600; }
+
+/* Camadas de proteção */
+.prot-layers {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+.prot-layer {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-main);
+}
+.prot-layer strong { display: block; font-size: 0.85rem; color: var(--text-primary); }
+.prot-layer small { display: block; font-size: 0.74rem; line-height: 1.4; color: var(--text-secondary); margin-top: 2px; }
+.prot-layer-n {
+    width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.75rem; font-weight: 700; background: #cbd5e1; color: #fff;
+}
+.prot-layer.is-ok { border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.05); }
+.prot-layer.is-ok .prot-layer-n { background: var(--accent-green); }
+.prot-layer.is-off { border-color: rgba(245, 158, 11, 0.5); background: rgba(245, 158, 11, 0.06); }
+.prot-layer.is-off .prot-layer-n { background: var(--accent-orange); }
+.prot-layers .prot-wide { grid-column: 1 / -1; }
+
+/* Agendamento e guardião empilhados: cada um com a largura toda (tabelas sem corte) */
+.prot-grid { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+.prot-panel {
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 1.1rem 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    min-width: 0;
+}
+.prot-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.prot-head h4 { font-size: 0.98rem; display: flex; gap: 8px; align-items: center; color: var(--text-primary); }
+.prot-sub { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin: 0.4rem 0 0.2rem; display: flex; gap: 6px; align-items: center; }
+
+.prot-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; white-space: nowrap;
+    background: rgba(100, 116, 139, 0.12); color: #475569;
+}
+.prot-pill.is-ok { background: rgba(16, 185, 129, 0.13); color: #047857; }
+.prot-pill.is-off { background: rgba(100, 116, 139, 0.12); color: #475569; }
+.prot-pill.is-act { background: rgba(37, 99, 235, 0.12); color: #1d4ed8; }
+.prot-pill.is-grow { background: rgba(245, 158, 11, 0.16); color: #b45309; }
+.prot-pill.is-emergency { background: rgba(239, 68, 68, 0.13); color: #b91c1c; }
+
+.prot-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.8rem 1rem; }
+.prot-form .form-group { margin: 0; }
+.prot-form .prot-wide { grid-column: 1 / -1; }
+.prot-check { grid-column: 1 / -1; font-size: 0.82rem; }
+.prot-danger { padding: 0.6rem 0.75rem; border-radius: 10px; border: 1px solid rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.04); }
+.prot-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.prot-actions .btn-primary { padding: 0.6rem 1.1rem; }
+.prot-jobs table { min-width: 520px; }
+.prot-jobs td { padding: 0.65rem 0.8rem; }
+.prot-jobs td.col-action .btn-primary { margin-left: 4px; }
+.prot-panel .op-details pre {
+    white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 0.74rem; line-height: 1.5;
+    color: #e2e8f0; background: #0f172a; border-radius: 10px; padding: 0.7rem 0.85rem; margin: 0.4rem 0 0.6rem;
+}
+
+/* Interruptor */
+.prot-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); }
+.prot-switch input { display: none; }
+.prot-switch span { width: 38px; height: 21px; border-radius: 999px; background: #cbd5e1; position: relative; transition: background 0.2s; }
+.prot-switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 15px; height: 15px; border-radius: 50%; background: #fff; transition: left 0.2s; }
+.prot-switch input:checked + span { background: var(--accent-green); }
+.prot-switch input:checked + span::after { left: 20px; }
+.prot-switch em { font-style: normal; }
+
+/* Medidor da FRA com as marcas dos limites */
+.prot-gauge-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 0.82rem; color: var(--text-secondary); }
+.prot-gauge-head strong { font-size: 1.35rem; color: var(--text-primary); }
+.prot-gauge { position: relative; height: 14px; margin: 0.2rem 0 0.1rem; border-radius: 8px; background: var(--bg-main); border: 1px solid var(--border-color); overflow: visible; }
+.prot-layer .btn-xs { margin-top: 6px; }
+.prot-gauge-fill { display: block; height: 100%; border-radius: 8px; background: var(--accent-green); transition: width 0.5s; }
+.prot-gauge-fill.is-act { background: var(--accent-blue); }
+.prot-gauge-fill.is-grow { background: var(--accent-orange); }
+.prot-gauge-fill.is-emergency { background: var(--accent-red); }
+.prot-gauge i { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #94a3b8; border-radius: 2px; }
+.prot-gauge i.is-red { background: var(--accent-red); }
+.prot-facts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.78rem; color: var(--text-secondary); }
+.prot-facts strong { color: var(--text-primary); }
+
+@media (max-width: 1200px) {
+    .prot-layers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 768px) {
+    .prot-layers, .prot-form { grid-template-columns: 1fr; }
+}

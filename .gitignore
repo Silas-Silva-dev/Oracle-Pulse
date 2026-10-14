@@ -10,8 +10,16 @@ node_modules/
 logs/
 *.log
 
-# Binários / instaladores
+# Binários / instaladores / vendor (não versionar em repositório público)
 Arquivos/*.msi
+Arquivos/*.exe
+
+# Senha de instalação (segredo) — NUNCA versionar (repo público expõe o algoritmo)
+installer/generator/
+installer/support/install-key.iss
+installer/tests/pwd-selftest.iss
+installer/tests/pwd-selftest.exe
+test/installPassword.test.js
 
 # Artefatos de SO / editor
 Thumbs.db
@@ -19,3 +27,8 @@ Thumbs.db
 .vscode/
 .idea/
 .claude/
+
+# Instalador Windows (artefatos gerados por installer/build.ps1)
+installer/.cache/
+installer/build/
+installer/dist/

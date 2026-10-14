@@ -55,6 +55,17 @@ function initApp() {
     // Atualiza o gráfico de tendência na mesma cadência do sampler (30s)
     setInterval(loadTrendData, 30000);
 
+    // Diferença entre a hora do servidor e o NTP (selo ao lado da hora)
+    loadTimeStatus(false);
+    setInterval(() => loadTimeStatus(false), 5 * 60 * 1000);
+
+    // Selo de problemas no menu "Recuperação" (verificação leve em segundo plano)
+    if (window.startRecoveryWatch) window.startRecoveryWatch();
+    // Selo de atualização disponível no menu "Sobre" (uma verificação discreta).
+    if (window.startUpdateWatch) window.startUpdateWatch();
+
+    initTableScrollMarks();
+
     // Terminal SQL: Ctrl+Enter executa o script
     const sqlInput = document.getElementById('sql-input');
     if (sqlInput) {
@@ -77,6 +88,27 @@ function initApp() {
             });
         });
     }
+}
+
+/**
+ * Marca as tabelas que precisam rolar na horizontal (.is-scrollable): só nelas a
+ * coluna "Ação" presa à direita ganha fundo e sombra. Uma verificação por quadro,
+ * quando o conteúdo muda ou a janela muda de tamanho.
+ */
+function initTableScrollMarks() {
+    let queued = false;
+    const mark = () => {
+        queued = false;
+        document.querySelectorAll('.page-section.active .table-container, .modal .table-container').forEach((c) => {
+            c.classList.toggle('is-scrollable', c.scrollWidth > c.clientWidth + 1);
+        });
+    };
+    const queue = () => { if (!queued) { queued = true; requestAnimationFrame(mark); } };
+    const root = document.querySelector('.content-wrapper') || document.body;
+    new MutationObserver(queue).observe(root, { childList: true, subtree: true });
+    window.addEventListener('resize', queue);
+    document.querySelectorAll('.nav-item').forEach((n) => n.addEventListener('click', queue));
+    queue();
 }
 
 function initLogin() {
@@ -252,18 +284,55 @@ window.dismissAllAlerts = function () {
 
 function setupRefreshInterval() {
     const selector = document.getElementById('refresh-rate');
-    refreshIntervalId = setInterval(refreshData, UPDATE_INTERVAL);
+    // Intervalo escolhido fica salvo neste navegador (mínimo 5 s: protege o banco).
+    try {
+        const saved = parseInt(localStorage.getItem('oracle_pulse_refresh') || '', 10);
+        if (selector && [...selector.options].some((o) => Number(o.value) === saved)) {
+            UPDATE_INTERVAL = saved;
+            selector.value = String(saved);
+        }
+    } catch (e) { /* armazenamento indisponível */ }
+    if (UPDATE_INTERVAL > 0) refreshIntervalId = setInterval(refreshData, UPDATE_INTERVAL);
 
     if (selector) {
         selector.addEventListener('change', (e) => {
             clearInterval(refreshIntervalId);
             UPDATE_INTERVAL = parseInt(e.target.value, 10);
+            try { localStorage.setItem('oracle_pulse_refresh', String(UPDATE_INTERVAL)); } catch (err) { /* ignore */ }
             if (UPDATE_INTERVAL > 0) {
                 refreshData();
                 refreshIntervalId = setInterval(refreshData, UPDATE_INTERVAL);
             }
         });
     }
+    // Aba voltou ao primeiro plano: atualiza na hora (em segundo plano nada é pedido).
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) return;
+        lastLightRefresh = 0;
+        refreshData();
+        if (activeSectionId() === 'overview') loadTrendData();
+    });
+}
+
+// Ao trocar de página, dados carregados há pouco são reaproveitados: a página
+// aparece na hora e o banco/servidor não recebe a mesma consulta de novo.
+// Os botões "Atualizar Agora" sempre buscam dados novos.
+const SECTION_FRESH_MS = { storage: 30000, sessions: 10000, memory: 30000, backup: 20000 };
+const sectionLoadedAt = {};
+const sectionForceNext = new Set(); // depois de uma execução: ignora o cache do servidor
+const SECTION_LOADERS = {
+    storage: (force) => loadStorageData(force),
+    sessions: () => loadSessionsData(),
+    memory: (force) => loadMemoryAdvisor(force),
+    backup: (force) => { loadBackupData(force); if (window.loadProtection && !force) loadProtection(false); },
+};
+
+function loadSectionIfStale(id, loader) {
+    const maxAge = SECTION_FRESH_MS[id] || 0;
+    const force = sectionForceNext.delete(id);
+    if (!force && sectionLoadedAt[id] && Date.now() - sectionLoadedAt[id] < maxAge) return;
+    sectionLoadedAt[id] = Date.now();
+    Promise.resolve().then(() => loader(force)).catch(() => { delete sectionLoadedAt[id]; });
 }
 
 function initNavigation() {
@@ -277,18 +346,18 @@ function initNavigation() {
             item.classList.add('active');
             // Sempre abre a nova página no topo (não na rolagem da página anterior)
             window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-            sections.forEach(s => {
-                s.classList.remove('active');
-                if (s.id === sectionId) {
-                    s.classList.add('active');
-                    if (sectionId === 'storage') loadStorageData();
-                    if (sectionId === 'sessions') loadSessionsData();
-                    if (sectionId === 'memory') loadMemoryAdvisor();
-                    if (sectionId === 'backup') loadBackupData();
-                    if (sectionId === 'sql-terminal') { const t = document.getElementById('sql-input'); if (t) t.focus(); }
-                    if (sectionId === 'performance' || sectionId === 'overview') refreshData();
-                }
-            });
+            sections.forEach(s => s.classList.toggle('active', s.id === sectionId));
+            if (SECTION_LOADERS[sectionId]) loadSectionIfStale(sectionId, SECTION_LOADERS[sectionId]);
+            if (sectionId === 'recovery' && window.loadRecovery) loadRecovery(false);
+            if (sectionId === 'sql-terminal') { const t = document.getElementById('sql-input'); if (t) t.focus(); }
+            if (sectionId === 'terminal' && window.loadTerminal) loadTerminal();
+            if (sectionId === 'about' && window.loadAbout) loadAbout();
+            if (sectionId === 'performance' || sectionId === 'overview') {
+                refreshData();
+                if (sectionId === 'overview') loadTrendData();
+                // Gráficos criados com a página escondida ganham o tamanho certo.
+                Object.values(charts).forEach((c) => { try { c.resize(); } catch (e) { /* ignore */ } });
+            }
         });
     });
 
@@ -434,16 +503,18 @@ function initCharts() {
 }
 
 async function loadTrendData() {
-    if (!charts.trend) return;
+    if (!charts.trend || document.hidden || activeSectionId() !== 'overview') return;
     try {
         const res = await secureFetch('/api/history');
         const data = await res.json();
         if (data.success && Array.isArray(data.data)) {
             const samples = data.data;
-            charts.trend.data.labels = samples.map(s => new Date(s.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            charts.trend.data.labels = samples.map(s => new Date(s.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
             charts.trend.data.datasets[0].data = samples.map(s => s.activeSessions);
             charts.trend.data.datasets[1].data = samples.map(s => s.memoryPct);
             charts.trend.update('none');
+            const empty = document.getElementById('trend-empty');
+            if (empty) empty.hidden = samples.length >= 2;
         }
     } catch (err) { console.warn('Trend load error:', err); }
 }
@@ -455,23 +526,41 @@ function updateWaitsChart(data) {
     charts.waits.update('none');
 }
 
+/** Seção visível agora (id). */
+function activeSectionId() {
+    const el = document.querySelector('.page-section.active');
+    return el ? el.id : null;
+}
+
+// Fora do Dashboard/Performance só o topo (instância, hora) e o sino precisam
+// atualizar — e com menos frequência. Com a aba em segundo plano, nada é pedido.
+const LIGHT_REFRESH_MS = 15000;
+let lastLightRefresh = 0;
+let refreshInFlight = false;
+
 async function refreshData() {
+    if (document.hidden || refreshInFlight) return;
+    const section = activeSectionId();
+    const dashVisible = section === 'overview' || section === 'performance';
+    if (!dashVisible) {
+        if (Date.now() - lastLightRefresh < LIGHT_REFRESH_MS) return;
+        lastLightRefresh = Date.now();
+    }
+    refreshInFlight = true;
     try {
         const [dashRes, healthRes] = await Promise.all([
-            secureFetch('/api/dashboard'),
+            secureFetch(dashVisible ? '/api/dashboard' : '/api/alerts'),
             secureFetch('/api/health')
         ]);
         const dash = await dashRes.json();
         const health = await healthRes.json();
-
-        if (health.success) {
-            const h = health.data;
-            document.getElementById('instance-name').textContent = h.INSTANCE_NAME;
-            document.getElementById('db-user').textContent = health.dbUser;
-            document.getElementById('uptime-val').textContent = formatUptime(h.UPTIME_MINUTES);
-            document.getElementById('last-update').textContent = `Sync: ${new Date().toLocaleTimeString()}`;
-            document.getElementById('server-time').innerHTML = `<i class="far fa-clock"></i> Servidor: ${h.CURRENT_TIME}`;
+        if (!dashVisible) {
+            if (health.success) renderHealth(health);
+            if (dash.success) renderAlerts(dash.data);
+            return;
         }
+
+        if (health.success) renderHealth(health);
 
         // Banner de alertas (vem no topo da resposta do dashboard)
         renderAlerts(dash.alerts);
@@ -505,7 +594,7 @@ async function refreshData() {
 
             // Line Chart Update
             if (d.sqlCommands && charts.activity) {
-                const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                 charts.activity.data.labels.push(now);
                 if (charts.activity.data.labels.length > 20) charts.activity.data.labels.shift();
 
@@ -529,7 +618,7 @@ async function refreshData() {
             if (d.waitClasses && charts.waitClasses) {
                 charts.waitClasses.data.labels = d.waitClasses.map(w => w.LABEL);
                 charts.waitClasses.data.datasets[0].data = d.waitClasses.map(w => w.VALUE);
-                charts.waitClasses.update();
+                charts.waitClasses.update('none');
 
                 if (d.waitClasses[0]) {
                     document.getElementById('critical-event').textContent = d.waitClasses[0].LABEL;
@@ -579,8 +668,8 @@ async function refreshData() {
                         return `
                             <tr>
                                 <td>
-                                    <strong>${user}</strong><br>
-                                    <span style="font-size: 0.75rem; color: var(--text-secondary);">${prog}</span>
+                                    <strong>${escapeHtml(user)}</strong><br>
+                                    <span style="font-size: 0.75rem; color: var(--text-secondary);">${escapeHtml(prog)}</span>
                                 </td>
                                 <td><span class="badge badge-blue">${sga.toFixed(2)} MB</span></td>
                                 <td><span class="badge badge-green">${pga.toFixed(2)} MB</span></td>
@@ -590,29 +679,84 @@ async function refreshData() {
                 }
             }
         }
-    } catch (err) { console.warn('Refresh error:', err); }
+    } catch (err) {
+        console.warn('Refresh error:', err);
+    } finally {
+        refreshInFlight = false;
+    }
+}
+
+function renderHealth(health) {
+    const h = health.data;
+    document.getElementById('instance-name').textContent = h.INSTANCE_NAME;
+    document.getElementById('db-user').textContent = health.dbUser;
+    document.getElementById('uptime-val').textContent = formatUptime(h.UPTIME_MINUTES);
+    document.getElementById('last-update').textContent = `Sync: ${new Date().toLocaleTimeString('pt-BR')}`;
+    document.getElementById('server-time').innerHTML = `<i class="far fa-clock"></i> Servidor: ${escapeHtml(h.CURRENT_TIME)}`;
 }
 
 function updateSqlTable(data, bodyId) {
     const body = document.getElementById(bodyId);
     if (!body) return;
-    body.innerHTML = data.map(sql => `
+    // O texto do SQL quebra em até 2 linhas (tabela com layout fixo) e a coluna
+    // "Ação" fica presa à direita: o botão "Ver" aparece em qualquer resolução.
+    body.innerHTML = data.map(sql => {
+        const id = escapeHtml(sql.SQL_ID ?? '');
+        const snippet = escapeHtml(sql.SQL_SNIPPET ?? '');
+        return `
         <tr>
-            <td><span class="badge badge-blue">${sql.SQL_ID}</span></td>
-            <td><strong>${sql.CPU_SECONDS.toFixed(2)}</strong></td>
-            <td>${sql.EXECUTIONS}</td>
-            <td style="font-family: 'JetBrains Mono'; font-size: 0.75rem; color: #64748b">${sql.SQL_SNIPPET}...</td>
-            <td><button class="btn-primary" style="padding: 4px 8px; font-size: 0.7rem;" onclick="showSqlDetails('${sql.SQL_ID}')">Ver</button></td>
-        </tr>
-    `).join('');
+            <td><span class="badge badge-blue">${id}</span></td>
+            <td><strong>${Number(sql.CPU_SECONDS || 0).toFixed(2)}</strong></td>
+            <td>${Number(sql.EXECUTIONS || 0).toLocaleString('pt-BR')}</td>
+            <td><div class="sql-snippet" title="${snippet}">${snippet}…</div></td>
+            <td class="col-action"><button class="btn-primary btn-xs" onclick="showSqlDetails('${id}')"><i class="fas fa-eye"></i> Ver</button></td>
+        </tr>`;
+    }).join('') || '<tr><td colspan="5" class="empty-row">Nenhuma consulta registrada.</td></tr>';
+    // Transparência: quanto as consultas do próprio painel pesam (ficam fora da lista).
+    const note = document.getElementById(`${bodyId}-note`);
+    const first = data[0];
+    if (note && first && first.PULSE_CPU_SECONDS != null) {
+        const pulse = Number(first.PULSE_CPU_SECONDS) || 0;
+        const total = Number(first.TOTAL_CPU_SECONDS) || 0;
+        const pct = total > 0 ? (pulse / total) * 100 : 0;
+        note.innerHTML = `<i class="fas fa-circle-info"></i> As consultas do próprio Oracle Pulse ficam fora desta lista: ` +
+            `<strong>${pulse.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} s</strong> de CPU ` +
+            `(${pct.toLocaleString('pt-BR', { maximumFractionDigits: pct < 1 ? 2 : 1 })}% do CPU de SQL desde o início da instância).`;
+    }
 }
 
 // Manual Storage Refresh
-document.getElementById('refresh-storage').addEventListener('click', loadStorageData);
+document.getElementById('refresh-storage').addEventListener('click', () => { sectionLoadedAt.storage = Date.now(); loadStorageData(true); });
 
-let storageConfig = { files: [], basePath: '' };
+// Estado da tela de Storage: mapa de diretórios/tablespaces (do banco) e
+// volumes do servidor (df / Win32_Volume / ASM).
+let storageConfig = { files: [], basePath: '', layout: { dirs: [], tablespaces: [] } };
+let storageVolumes = [];
+let addFileSuggested = '';
 
-async function loadStorageData() {
+const CUSTOM_DIR = '__custom__';
+const fmtMb = (mb) => Number(mb || 0).toLocaleString('pt-BR');
+const fmtGb = (gb) => `${Number(gb || 0).toLocaleString('pt-BR')} GB`;
+
+function usageColor(pct) {
+    if (pct > 85) return 'var(--accent-red)';
+    if (pct > 70) return 'var(--accent-orange)';
+    return 'var(--accent-blue)';
+}
+
+// Chave de comparação de diretórios (Windows/ASM não diferenciam maiúsculas).
+function dirKey(dir) {
+    const s = String(dir || '');
+    return /^[A-Za-z]:|^\\\\|^\+/.test(s) ? s.toUpperCase() : s;
+}
+
+function volumeForDir(dir) {
+    const key = dirKey(dir);
+    return storageVolumes.find(v => v.dirs.some(d => dirKey(d.dir) === key)) || null;
+}
+
+async function loadStorageData(force = false) {
+    const q = force === true ? '?refresh=1' : '';
     const btn = document.getElementById('refresh-storage');
     if (!btn) return;
     const icon = btn.querySelector('i');
@@ -620,40 +764,17 @@ async function loadStorageData() {
         btn.disabled = true; icon.classList.add('fa-spin');
 
         const [storageRes, configRes, osDiskRes] = await Promise.all([
-            secureFetch('/api/storage'),
-            secureFetch('/api/storage/config'),
-            secureFetch('/api/storage/os-disk')
+            secureFetch(`/api/storage${q}`),
+            secureFetch(`/api/storage/config${q}`),
+            secureFetch(`/api/storage/os-disk${q}`)
         ]);
 
         const storageData = await storageRes.json();
         const configData = await configRes.json();
         const osDiskData = await osDiskRes.json();
 
-        if (osDiskData.success && osDiskData.data && !osDiskData.data.error) {
-            const d = osDiskData.data;
-            document.getElementById('os-disk-path').textContent = `Volume: ${d.path}`;
-            document.getElementById('os-disk-text').textContent = `${d.freeGB} GB Livres / ${d.totalGB} GB Total`;
-            const bar = document.getElementById('os-disk-bar');
-            bar.style.width = `${d.usedPct}%`;
-            bar.textContent = `${d.usedPct}%`;
-            
-            if (d.usedPct > 85) bar.style.background = 'var(--accent-red)';
-            else if (d.usedPct > 70) bar.style.background = '#f59e0b';
-            else bar.style.background = 'var(--accent-blue)';
-        } else if (osDiskData.success && osDiskData.data && osDiskData.data.error) {
-            document.getElementById('os-disk-path').textContent = 'Erro de Leitura (Veja as credenciais)';
-            document.getElementById('os-disk-text').textContent = osDiskData.data.error;
-            const bar = document.getElementById('os-disk-bar');
-            bar.style.width = `100%`;
-            bar.textContent = `Falha`;
-            bar.style.background = 'var(--accent-red)';
-        } else {
-            document.getElementById('os-disk-path').textContent = 'ASM ou Caminho Restrito';
-            document.getElementById('os-disk-text').textContent = '--';
-            const bar = document.getElementById('os-disk-bar');
-            bar.style.width = `0%`;
-            bar.textContent = ``;
-        }
+        storageVolumes = (osDiskData.success && osDiskData.data && osDiskData.data.volumes) || [];
+        renderVolumes(osDiskData);
 
         if (storageData.success) {
             lastStorageData = storageData.data;
@@ -661,28 +782,193 @@ async function loadStorageData() {
         }
         if (configData.success) {
             storageConfig = configData.data;
-            populateStorageDropdowns(storageData.data, configData.data);
+            populateStorageDropdowns();
         }
     } catch (err) { console.error('Storage load fail:', err); }
     finally { setTimeout(() => { btn.disabled = false; icon.classList.remove('fa-spin'); }, 500); }
 }
 
-function populateStorageDropdowns(tablespaces, config) {
+// Um bloco por volume (disco, ponto de montagem ou disk group ASM) com os
+// diretórios que ele contém e para quais tablespaces ele é o destino atual.
+function renderVolumes(osDiskData) {
+    const box = document.getElementById('os-volumes');
+    if (!box) return;
+    const data = (osDiskData && osDiskData.data) || {};
+    if (!osDiskData || !osDiskData.success) {
+        box.innerHTML = `<div class="storage-warnings"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml((osDiskData && osDiskData.error) || 'Falha ao ler os volumes do servidor.')}</div>`;
+        return;
+    }
+    const volumes = data.volumes || [];
+    const warnings = data.warnings || [];
+
+    const items = volumes.map(v => {
+        const color = usageColor(v.usedPct);
+        const icon = v.kind === 'asm' ? 'fa-layer-group' : 'fa-hard-drive';
+        const current = v.currentFor && v.currentFor.length
+            ? `<span class="chip chip-current" title="Novos datafiles destes tablespaces vão para este volume"><i class="fas fa-location-dot"></i> Destino atual: ${escapeHtml(v.currentFor.join(', '))}</span>`
+            : '';
+        const dirs = v.dirs.map(d => {
+            const ts = d.tablespaces.map(t => `${escapeHtml(t.name)} (${t.files})`).join(', ');
+            const temp = d.kinds.includes('temp') ? ' <span class="chip chip-temp">tempfiles</span>' : '';
+            return `<div class="volume-dir"><i class="fas fa-folder"></i> <code>${escapeHtml(d.dir)}</code><span>${ts}</span>${temp}</div>`;
+        }).join('');
+        return `
+            <div class="volume-item ${v.currentFor && v.currentFor.length ? 'is-current' : ''}">
+                <div class="volume-head">
+                    <div class="volume-name"><i class="fas ${icon}"></i> ${escapeHtml(v.mount)} ${current}</div>
+                    <div class="volume-space">${fmtGb(v.freeGB)} livres de ${fmtGb(v.totalGB)}</div>
+                </div>
+                <div class="usage-bar"><span style="width:${Math.min(100, Math.max(0, v.usedPct))}%; background:${color}">${v.usedPct}%</span></div>
+                <div class="volume-dirs">${dirs}</div>
+            </div>`;
+    }).join('');
+
+    const warn = warnings.length
+        ? `<div class="storage-warnings"><i class="fas fa-triangle-exclamation"></i> ${warnings.map(escapeHtml).join('<br>')}</div>`
+        : '';
+    box.innerHTML = (items || (warn ? '' : '<div class="empty-state">Nenhum volume encontrado.</div>')) + warn;
+}
+
+function populateStorageDropdowns() {
+    const layout = storageConfig.layout || { dirs: [], tablespaces: [] };
     const resizeSelect = document.getElementById('resize-file-select');
     const addTsSelect = document.getElementById('add-ts-select');
 
     if (resizeSelect) {
-        resizeSelect.innerHTML = config.files.map(f =>
-            `<option value="${f.FILE_NAME}">${f.TABLESPACE_NAME} - ${f.FILE_NAME} (${f.SIZE_MB}MB)</option>`
-        ).join('');
+        const prev = resizeSelect.value;
+        // Agrupado por tablespace, arquivos mais recentes primeiro (os que costumam crescer).
+        const groups = {};
+        storageConfig.files.forEach(f => { (groups[f.TABLESPACE_NAME] = groups[f.TABLESPACE_NAME] || []).push(f); });
+        resizeSelect.innerHTML = Object.keys(groups).sort().map(ts => {
+            const files = groups[ts].slice().sort((a, b) => (Number(b.FILE_ID) || 0) - (Number(a.FILE_ID) || 0));
+            return `<optgroup label="${escapeHtml(ts)}">` + files.map(f => {
+                const name = String(f.FILE_NAME).slice(String(f.DIR || '').length) || f.FILE_NAME;
+                return `<option value="${escapeHtml(f.FILE_NAME)}" title="${escapeHtml(f.FILE_NAME)}">${escapeHtml(name)} — ${fmtMb(f.SIZE_MB)} MB — ${escapeHtml(f.DIR || '')}</option>`;
+            }).join('') + '</optgroup>';
+        }).join('');
+        if (prev && storageConfig.files.some(f => f.FILE_NAME === prev)) resizeSelect.value = prev;
+        updateResizeHint();
     }
 
     if (addTsSelect) {
-        addTsSelect.innerHTML = tablespaces.map(t =>
-            `<option value="${t.TABLESPACE_NAME}">${t.TABLESPACE_NAME}</option>`
+        const prev = addTsSelect.value;
+        addTsSelect.innerHTML = layout.tablespaces.map(t =>
+            `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}</option>`
         ).join('');
+        if (prev && layout.tablespaces.some(t => t.name === prev)) addTsSelect.value = prev;
+        onAddTablespaceChange(true);
     }
 }
+
+function updateResizeHint() {
+    const hint = document.getElementById('resize-file-hint');
+    const sel = document.getElementById('resize-file-select');
+    if (!hint || !sel) return;
+    const file = storageConfig.files.find(f => f.FILE_NAME === sel.value);
+    if (!file) { hint.textContent = ''; return; }
+    const vol = volumeForDir(file.DIR);
+    const auto = file.AUTOEXTENSIBLE === 'YES' ? ` · autoextend até ${fmtMb(file.MAX_SIZE_MB)} MB` : '';
+    hint.innerHTML = `<code>${escapeHtml(file.FILE_NAME)}</code><br>Tamanho atual: <strong>${fmtMb(file.SIZE_MB)} MB</strong>${auto}` +
+        (vol ? ` · Volume <strong>${escapeHtml(vol.mount)}</strong>: ${fmtGb(vol.freeGB)} livres` : '');
+}
+
+function currentAddTablespace() {
+    const name = document.getElementById('add-ts-select').value;
+    return (storageConfig.layout.tablespaces || []).find(t => t.name === name) || null;
+}
+
+// Troca de tablespace: diretório padrão = o ATUAL dele (o do datafile mais
+// recente) e o nome sugerido segue a sequência (dados63.dbf -> dados64.dbf).
+function onAddTablespaceChange(keepDir) {
+    const ts = currentAddTablespace();
+    const dirSelect = document.getElementById('add-dir-select');
+    if (!dirSelect) return;
+    const prevDir = dirSelect.value;
+    const dataDirs = (storageConfig.layout.dirs || []).filter(d => d.kinds.includes('data'));
+
+    dirSelect.innerHTML = dataDirs.map(d => {
+        const own = ts ? d.tablespaces.find(t => t.name === ts.name) : null;
+        const isCurrent = ts && dirKey(d.dir) === dirKey(ts.currentDir);
+        const vol = volumeForDir(d.dir);
+        const parts = [d.dir];
+        if (isCurrent) parts.push('(atual)');
+        if (vol) parts.push(`· ${fmtGb(vol.freeGB)} livres`);
+        if (own) parts.push(`· ${own.files} arq.`);
+        return `<option value="${escapeHtml(d.dir)}">${escapeHtml(parts.join(' '))}</option>`;
+    }).join('') + `<option value="${CUSTOM_DIR}">Outro diretório...</option>`;
+
+    if (keepDir === true && prevDir && [...dirSelect.options].some(o => o.value === prevDir)) dirSelect.value = prevDir;
+    else if (ts) dirSelect.value = ts.currentDir;
+
+    const nameInput = document.getElementById('add-file-name');
+    if (ts && (!nameInput.value || nameInput.value === addFileSuggested)) {
+        nameInput.value = ts.suggestedName || '';
+    }
+    addFileSuggested = ts ? (ts.suggestedName || '') : '';
+    onAddDirChange();
+}
+
+function selectedAddDir() {
+    const sel = document.getElementById('add-dir-select').value;
+    return sel === CUSTOM_DIR ? document.getElementById('add-dir-custom').value.trim() : sel;
+}
+
+function onAddDirChange() {
+    const isCustom = document.getElementById('add-dir-select').value === CUSTOM_DIR;
+    document.getElementById('add-dir-custom').hidden = !isCustom;
+    const isAsm = selectedAddDir().startsWith('+');
+    const nameInput = document.getElementById('add-file-name');
+    nameInput.disabled = isAsm;
+    nameInput.placeholder = isAsm ? 'Gerado pelo Oracle (ASM/OMF)' : 'Ex: dados64.dbf';
+    updateAddPreview();
+}
+
+// Prévia do caminho final + espaço livre do volume de destino.
+function updateAddPreview() {
+    const box = document.getElementById('add-file-preview');
+    const ts = currentAddTablespace();
+    if (!box || !ts) return;
+    let dir = selectedAddDir();
+    const name = document.getElementById('add-file-name').value.trim();
+    const size = Number(document.getElementById('add-file-size').value);
+    box.classList.remove('is-warn', 'is-error');
+
+    if (!dir) {
+        box.innerHTML = 'Informe o diretório de destino.';
+        box.hidden = false;
+        return;
+    }
+    const isAsm = dir.startsWith('+');
+    const sep = /^[A-Za-z]:|^\\\\/.test(dir) ? '\\' : '/';
+    if (!isAsm && !dir.endsWith(sep)) dir += sep;
+    const target = isAsm ? dir.split('/')[0].toUpperCase() : dir + (name || '<nome>');
+    const lines = [`Será criado em: <code>${escapeHtml(target)}</code>`];
+
+    const vol = volumeForDir(dir);
+    if (vol) {
+        lines.push(`Volume <strong>${escapeHtml(vol.mount)}</strong>: ${fmtGb(vol.freeGB)} livres de ${fmtGb(vol.totalGB)} (${vol.usedPct}% usado)`);
+        if (size > 0 && size >= vol.freeMb) {
+            box.classList.add('is-error');
+            lines.push(`<span class="txt-error"><i class="fas fa-circle-xmark"></i> Espaço insuficiente: o volume tem ${fmtMb(vol.freeMb)} MB livres.</span>`);
+        } else if (size > 0 && vol.freeMb - size < vol.freeMb * 0.1) {
+            box.classList.add('is-warn');
+            lines.push('<span class="txt-warn"><i class="fas fa-triangle-exclamation"></i> O volume ficará quase cheio após a criação.</span>');
+        }
+    } else if (document.getElementById('add-dir-select').value === CUSTOM_DIR) {
+        lines.push('<i class="fas fa-circle-info"></i> Diretório novo: o painel confere se ele existe no servidor e o espaço livre antes de criar.');
+    }
+    if (ts && dirKey(dir) !== dirKey(ts.currentDir) && !isAsm) {
+        lines.push(`<i class="fas fa-circle-info"></i> O diretório atual de ${escapeHtml(ts.name)} é <code>${escapeHtml(ts.currentDir)}</code>.`);
+    }
+    box.innerHTML = lines.join('<br>');
+    box.hidden = false;
+}
+
+document.getElementById('resize-file-select')?.addEventListener('change', updateResizeHint);
+document.getElementById('add-ts-select')?.addEventListener('change', () => onAddTablespaceChange(false));
+document.getElementById('add-dir-select')?.addEventListener('change', onAddDirChange);
+['add-dir-custom', 'add-file-name', 'add-file-size'].forEach(id =>
+    document.getElementById(id)?.addEventListener('input', updateAddPreview));
 
 window.handleResize = async function () {
     const fileName = document.getElementById('resize-file-select').value;
@@ -700,20 +986,27 @@ window.handleResize = async function () {
             body: JSON.stringify({ fileName, newSizeMb: newSize })
         });
         const data = await res.json();
-        alert(data.message);
-        loadStorageData();
+        alert(data.success ? data.message : `Não foi possível redimensionar:\n\n${data.error}`);
+        if (data.success) loadStorageData();
     } catch (err) { alert('Erro ao executar comando: ' + err.message); }
 }
 
 window.handleAddFile = async function () {
-    const tablespace = document.getElementById('add-ts-select').value;
-    const fileName = document.getElementById('add-file-name').value;
+    const ts = currentAddTablespace();
+    const directory = selectedAddDir();
+    const fileName = document.getElementById('add-file-name').value.trim();
     const size = document.getElementById('add-file-size').value;
 
-    if (!fileName || !size) return alert('Preencha todos os campos!');
+    if (!ts) return alert('Selecione o tablespace.');
+    if (!directory) return alert('Informe o diretório de destino.');
+    if (!size) return alert('Informe o tamanho inicial (MB).');
+    const isAsm = directory.startsWith('+');
+    if (!isAsm && !fileName) return alert('Informe o nome do arquivo.');
 
-    const fullPath = storageConfig.basePath + fileName;
-    const command = `ALTER TABLESPACE "${tablespace}" ADD DATAFILE '${fullPath}' SIZE ${size}M AUTOEXTEND ON NEXT 100M MAXSIZE UNLIMITED`;
+    const sep = /^[A-Za-z]:|^\\\\/.test(directory) ? '\\' : '/';
+    const dir = isAsm || directory.endsWith(sep) ? directory : directory + sep;
+    const fullPath = isAsm ? dir.split('/')[0].toUpperCase() : dir + fileName;
+    const command = `ALTER TABLESPACE "${ts.name}" ADD DATAFILE '${fullPath}' SIZE ${size}M AUTOEXTEND ON NEXT 100M MAXSIZE UNLIMITED`;
 
     if (!confirm(`CONFIRMAÇÃO DE SEGURANÇA\n\nComando: ${command}\n\nDeseja criar este novo datafile agora?`)) return;
 
@@ -721,43 +1014,51 @@ window.handleAddFile = async function () {
         const res = await secureFetch('/api/storage/add-file', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tablespace, fileName: fullPath, sizeMb: size })
+            body: JSON.stringify({ tablespace: ts.name, directory, fileName: isAsm ? '' : fileName, sizeMb: size })
         });
         const data = await res.json();
-        alert(data.message);
-        loadStorageData();
+        alert(data.success ? data.message : `Não foi possível criar o datafile:\n\n${data.error}`);
+        if (data.success) {
+            document.getElementById('add-file-name').value = '';
+            loadStorageData();
+        }
     } catch (err) { alert('Erro ao executar comando: ' + err.message); }
 }
 
 function updateStorageList(data) {
     const container = document.getElementById('storage-detail-list');
     if (!container) return;
+    const n = (v) => Math.round(Number(v) || 0).toLocaleString('pt-BR');
     container.innerHTML = `
+        <div class="card-header">
+            <h3 class="card-title"><i class="fas fa-database"></i> Tablespaces</h3>
+            <span class="card-subtitle">Ordenados pelo uso; o limite considera o autoextend</span>
+        </div>
         <div class="table-container">
             <table>
                 <thead>
                     <tr>
                         <th style="text-align: left;">Tablespace</th>
-                        <th style="text-align: center;">Total (MB)</th>
-                        <th style="text-align: center;">Utilizado (MB)</th>
-                        <th style="text-align: center;">Livre (MB)</th>
-                        <th style="text-align: center;">Limite Máximo (MB)</th>
+                        <th style="text-align: right;">Total (MB)</th>
+                        <th style="text-align: right;">Utilizado (MB)</th>
+                        <th style="text-align: right;">Livre (MB)</th>
+                        <th style="text-align: right;">Limite Máximo (MB)</th>
                         <th style="text-align: center;">Uso %</th>
                     </tr>
                 </thead>
                 <tbody>${data.map(s => `
                     <tr>
-                        <td style="text-align: left;"><strong>${s.TABLESPACE_NAME}</strong></td>
-                        <td style="text-align: center;">${s.TOTAL_MB.toFixed(0)} MB</td>
-                        <td style="text-align: center; color: var(--accent-blue)">${s.USED_MB.toFixed(0)} MB</td>
-                        <td style="text-align: center; color: var(--accent-green)">${s.FREE_MB.toFixed(0)} MB</td>
-                        <td style="text-align: center;"><span class="badge" style="background: rgba(0,0,0,0.05); color: var(--text-primary)">${s.MAX_MB.toFixed(0)} MB</span></td>
+                        <td style="text-align: left;"><strong>${escapeHtml(s.TABLESPACE_NAME)}</strong></td>
+                        <td style="text-align: right;" class="mono">${n(s.TOTAL_MB)}</td>
+                        <td style="text-align: right; color: var(--accent-blue)" class="mono">${n(s.USED_MB)}</td>
+                        <td style="text-align: right; color: #059669" class="mono">${n(s.FREE_MB)}</td>
+                        <td style="text-align: right;" class="mono">${n(s.MAX_MB)}</td>
                         <td>
                             <div style="display: flex; align-items: center; gap: 10px; justify-content: center;">
-                                <div style="flex: 0 0 100px; height: 8px; background: rgba(0,0,0,0.06); border-radius: 4px; overflow: hidden;">
-                                    <div style="width: ${s.USED_PCT}%; height: 100%; background: ${s.USED_PCT > 90 ? 'var(--accent-red)' : 'var(--accent-blue)'};"></div>
+                                <div style="flex: 0 0 110px; height: 8px; background: rgba(0,0,0,0.06); border-radius: 4px; overflow: hidden;">
+                                    <div style="width: ${Math.min(100, Number(s.USED_PCT) || 0)}%; height: 100%; background: ${usageColor(Number(s.USED_PCT) || 0)};"></div>
                                 </div>
-                                <span style="font-weight: 600; width: 45px; text-align: right;">${s.USED_PCT}%</span>
+                                <span style="font-weight: 600; width: 58px; text-align: right;">${Number(s.USED_PCT || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</span>
                             </div>
                         </td>
                     </tr>`).join('')}</tbody>
@@ -785,7 +1086,7 @@ async function loadSessionsData() {
                     </tr>`;
             } else {
                 container.innerHTML = data.data.map(s => `
-                    <tr style="${s.ROLE === 'VILÃO (RAIZ)' ? 'background: rgba(239, 68, 68, 0.05);' : ''}">
+                    <tr class="${s.ROLE === 'VILÃO (RAIZ)' ? 'row-danger' : ''}">
                         <td><span class="badge ${s.ROLE === 'VILÃO (RAIZ)' ? 'badge-red' : 'badge-blue'}">#${s.SID},${s.SERIAL}</span></td>
                         <td>
                             <strong style="color: ${s.ROLE === 'VILÃO (RAIZ)' ? 'var(--accent-red)' : 'inherit'}">
@@ -799,7 +1100,7 @@ async function loadSessionsData() {
                                 '<span class="badge" style="background: #f1f5f9; color: #64748b">NENHUM (RAIZ)</span>'}
                         </td>
                         <td><small>${s.PROGRAM}</small></td>
-                        <td>${userRole === 'dba'
+                        <td class="col-action">${userRole === 'dba'
                             ? `<button class="btn-primary" style="background: var(--accent-red); padding: 5px 10px;" onclick="killSession(${s.SID}, ${s.SERIAL})">KILL</button>`
                             : '<span class="badge" style="background:#f1f5f9;color:#94a3b8">—</span>'}</td>
                     </tr>`).join('');
@@ -870,7 +1171,7 @@ async function loadLongRunningSessions() {
                 <td><strong>${formatDuration(s.SECONDS_RUNNING)}</strong></td>
                 <td><small>${s.EVENT || '-'}</small></td>
                 <td>${s.SQL_ID ? `<span class="badge badge-blue" style="cursor:pointer" onclick="showSqlDetails('${s.SQL_ID}')">${s.SQL_ID}</span>` : '-'}</td>
-                <td>${userRole === 'dba'
+                <td class="col-action">${userRole === 'dba'
                     ? `<button class="btn-primary" style="background: var(--accent-red); padding: 5px 10px;" onclick="killSession(${s.SID}, ${s.SERIAL})">KILL</button>`
                     : '<span class="badge" style="background:#f1f5f9;color:#94a3b8">—</span>'}</td>
             </tr>`).join('');
@@ -885,100 +1186,226 @@ function formatDuration(seconds) {
 }
 
 // ===================== Backup & Auditoria =====================
-window.loadBackupData = async function () {
-    if (userRole === 'dba') loadBackupConfig();
+let backupLoadSeq = 0;
+
+/**
+ * Carrega a tela Backup & Auditoria. force=true ("Atualizar Agora") ignora o cache
+ * do servidor e recarrega também a proteção da FRA. Cada bloco atualiza (ou mostra
+ * o erro) sozinho: uma falha não deixa os outros com dados antigos.
+ */
+window.loadBackupData = async function (force = false) {
+    const seq = ++backupLoadSeq;
+    const btn = document.getElementById('refresh-backup');
+    const icon = btn && btn.querySelector('i');
+    if (btn) { btn.disabled = true; if (icon) icon.classList.add('fa-spin'); }
+    const isDba = userRole === 'dba';
+    const jobs = [loadBackupStatus(force, seq)];
+    if (isDba) {
+        jobs.push(loadBackupConfig(), loadAuditTrail(seq));
+        if (force && window.loadProtection) jobs.push(window.loadProtection(true));
+    }
     try {
-        const [backupRes, auditRes] = await Promise.all([
-            secureFetch('/api/backup/status'),
-            userRole === 'dba' ? secureFetch('/api/audit') : Promise.resolve(null)
-        ]);
+        await Promise.allSettled(jobs);
+    } finally {
+        if (btn && seq === backupLoadSeq) { btn.disabled = false; if (icon) icon.classList.remove('fa-spin'); }
+    }
+};
 
-        const backup = await backupRes.json();
-        if (backup.success) {
-            const d = backup.data;
-            if (d.mode) {
-                const modeEl = document.getElementById('archivelog-mode');
-                modeEl.textContent = d.mode.LOG_MODE || '--';
-                modeEl.style.color = d.mode.LOG_MODE === 'ARCHIVELOG' ? 'var(--accent-green)' : 'var(--accent-red)';
-                document.getElementById('db-role').textContent = `${d.mode.NAME || ''} • ${d.mode.DATABASE_ROLE || ''}`;
-            }
-            const lastFull = (d.backups || []).find(b => b.STATUS && b.STATUS.indexOf('COMPLETED') >= 0) || (d.backups || [])[0];
-            if (lastFull) {
-                document.getElementById('last-backup').textContent = lastFull.END_TIME || lastFull.START_TIME || '--';
-                const statusEl = document.getElementById('last-backup-status');
-                statusEl.textContent = `${lastFull.INPUT_TYPE || ''} • ${lastFull.STATUS || ''}`;
-                statusEl.style.color = (lastFull.STATUS || '').indexOf('COMPLETED') >= 0 ? 'var(--accent-green)' : 'var(--accent-orange)';
-            }
-            const fraUsageEl = document.getElementById('fra-usage');
-            const fraDetailEl = document.getElementById('fra-detail');
-            if (d.fra && (d.fra.LIMIT_MB ?? 0) > 0) {
-                fraUsageEl.textContent = `${(d.fra.USED_PCT ?? 0).toFixed(1)}%`;
-                fraUsageEl.style.color = '';
-                const dest = d.fra.NAME || d.fra.name;
-                fraDetailEl.innerHTML = `${(d.fra.USED_MB ?? 0).toFixed(0)} / ${(d.fra.LIMIT_MB ?? 0).toFixed(0)} MB` +
-                    (dest ? `<br><span title="${escapeHtml(dest)}" style="font-size:0.7rem; color:var(--text-secondary)"><i class="fas fa-folder"></i> ${escapeHtml(dest)}</span>` : '');
-                fraDetailEl.style.color = 'var(--text-secondary)';
-            } else {
-                fraUsageEl.textContent = 'N/D';
-                fraUsageEl.style.color = 'var(--accent-orange)';
-                fraDetailEl.innerHTML = '<i class="fas fa-triangle-exclamation"></i> FRA não configurada';
-                fraDetailEl.style.color = 'var(--accent-orange)';
-            }
-
-            const rmanBody = document.getElementById('rman-body');
-            if (rmanBody) {
-                rmanBody.innerHTML = (d.backups || []).length === 0
-                    ? `<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-secondary)">Sem registros de backup.</td></tr>`
-                    : d.backups.map(b => {
-                        const key = b.SESSION_KEY ?? b.session_key;
-                        const logBtn = (key != null && userRole === 'dba')
-                            ? `<button class="btn-primary" style="padding:4px 9px; font-size:0.7rem;" onclick="showRmanRowLog(${key})"><i class="fas fa-file-lines"></i> Log</button>`
-                            : '<span style="color:var(--text-secondary)">—</span>';
-                        return `
-                        <tr>
-                            <td><strong>${b.INPUT_TYPE || '-'}</strong></td>
-                            <td><span class="badge ${(b.STATUS||'').indexOf('COMPLETED')>=0 ? 'badge-green' : 'badge-red'}">${b.STATUS || '-'}</span></td>
-                            <td>${b.START_TIME || '-'}</td>
-                            <td>${b.END_TIME || '-'}</td>
-                            <td>${b.ELAPSED_MINUTES ?? '-'}</td>
-                            <td>${b.OUTPUT_BYTES_DISPLAY || '-'}</td>
-                            <td>${logBtn}</td>
-                        </tr>`; }).join('');
-            }
-        }
-
-        if (auditRes) {
-            const audit = await auditRes.json();
-            const auditBody = document.getElementById('audit-body');
-            if (audit.success && auditBody) {
-                auditBody.innerHTML = audit.data.length === 0
-                    ? `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-secondary)">Sem registros de auditoria.</td></tr>`
-                    : audit.data.map(a => `
-                        <tr>
-                            <td><small>${new Date(a.ts).toLocaleString('pt-BR')}</small></td>
-                            <td><span class="badge badge-blue">${a.action}</span></td>
-                            <td>${a.user} <span style="font-size:0.65rem;color:var(--text-secondary)">(${a.role})</span></td>
-                            <td><small>${a.ip}</small></td>
-                            <td><span class="badge ${a.success ? 'badge-green' : 'badge-red'}">${a.success ? 'OK' : 'FALHA'}</span></td>
-                            <td><small style="color:var(--text-secondary)">${(a.detail || '').substring(0, 80)}</small></td>
-                        </tr>`).join('');
-            }
-        }
-    } catch (err) { console.warn('Backup load fail:', err); }
+function setBackupStatusError(msg) {
+    for (const id of ['archivelog-mode', 'last-backup', 'fra-usage']) {
+        const el = document.getElementById(id);
+        if (el) { el.textContent = 'erro'; el.style.color = 'var(--accent-red)'; }
+    }
+    for (const id of ['db-role', 'last-backup-status', 'fra-detail']) {
+        const el = document.getElementById(id);
+        if (el) { el.textContent = msg; el.style.color = 'var(--accent-red)'; }
+    }
 }
 
-// ===================== Otimização de Memória (Advisor) =====================
-window.loadMemoryAdvisor = async function () {
+async function loadBackupStatus(force, seq) {
+    let backup;
     try {
-        const res = await secureFetch('/api/memory/advisor');
+        const res = await secureFetch(`/api/backup/status${force ? '?refresh=1' : ''}`);
+        backup = await res.json();
+    } catch (err) {
+        backup = { success: false, error: err.message };
+    }
+    if (seq !== backupLoadSeq) return; // uma atualização mais nova já está a caminho
+    if (!backup.success) {
+        setBackupStatusError(`Não foi possível ler: ${backup.error || 'erro desconhecido'}`);
+        return;
+    }
+    const d = backup.data;
+    const modeEl = document.getElementById('archivelog-mode');
+    modeEl.textContent = d.mode ? (d.mode.LOG_MODE || '--') : '--';
+    modeEl.style.color = d.mode && d.mode.LOG_MODE === 'ARCHIVELOG' ? 'var(--accent-green)' : d.mode ? 'var(--accent-red)' : '';
+    const roleEl = document.getElementById('db-role');
+    roleEl.textContent = d.mode ? `${d.mode.NAME || ''} • ${d.mode.DATABASE_ROLE || ''}` : '--';
+    roleEl.style.color = 'var(--text-secondary)';
+
+    const lastFull = (d.backups || []).find(b => b.STATUS && b.STATUS.indexOf('COMPLETED') >= 0) || (d.backups || [])[0];
+    const lastEl = document.getElementById('last-backup');
+    const statusEl = document.getElementById('last-backup-status');
+    lastEl.style.color = '';
+    if (lastFull) {
+        lastEl.textContent = lastFull.END_TIME || lastFull.START_TIME || '--';
+        statusEl.textContent = `${lastFull.INPUT_TYPE || ''} • ${lastFull.STATUS || ''}`;
+        statusEl.style.color = (lastFull.STATUS || '').indexOf('COMPLETED') >= 0 ? 'var(--accent-green)' : 'var(--accent-orange)';
+    } else {
+        lastEl.textContent = 'Nenhum';
+        statusEl.textContent = 'sem backups registrados';
+        statusEl.style.color = 'var(--accent-orange)';
+    }
+
+    const fraUsageEl = document.getElementById('fra-usage');
+    const fraDetailEl = document.getElementById('fra-detail');
+    if (d.fra && (d.fra.LIMIT_MB ?? 0) > 0) {
+        fraUsageEl.textContent = `${(d.fra.USED_PCT ?? 0).toFixed(1)}%`;
+        fraUsageEl.style.color = '';
+        const dest = d.fra.NAME || d.fra.name;
+        fraDetailEl.innerHTML = `${(d.fra.USED_MB ?? 0).toFixed(0)} / ${(d.fra.LIMIT_MB ?? 0).toFixed(0)} MB` +
+            (dest ? `<br><span title="${escapeHtml(dest)}" style="font-size:0.7rem; color:var(--text-secondary)"><i class="fas fa-folder"></i> ${escapeHtml(dest)}</span>` : '');
+        fraDetailEl.style.color = 'var(--text-secondary)';
+    } else {
+        fraUsageEl.textContent = 'N/D';
+        fraUsageEl.style.color = 'var(--accent-orange)';
+        fraDetailEl.innerHTML = '<i class="fas fa-triangle-exclamation"></i> FRA não configurada';
+        fraDetailEl.style.color = 'var(--accent-orange)';
+    }
+
+    const rmanBody = document.getElementById('rman-body');
+    if (rmanBody) {
+        rmanBody.innerHTML = (d.backups || []).length === 0
+            ? `<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-secondary)">Sem registros de backup.</td></tr>`
+            : d.backups.map(b => {
+                const key = b.SESSION_KEY ?? b.session_key;
+                const logBtn = (key != null && userRole === 'dba')
+                    ? `<button class="btn-primary" style="padding:4px 9px; font-size:0.7rem;" onclick="showRmanRowLog(${key})"><i class="fas fa-file-lines"></i> Log</button>`
+                    : '<span style="color:var(--text-secondary)">—</span>';
+                return `
+                <tr>
+                    <td><strong>${b.INPUT_TYPE || '-'}</strong></td>
+                    <td><span class="badge ${(b.STATUS||'').indexOf('COMPLETED')>=0 ? 'badge-green' : 'badge-red'}">${b.STATUS || '-'}</span></td>
+                    <td>${b.START_TIME || '-'}</td>
+                    <td>${b.END_TIME || '-'}</td>
+                    <td>${b.ELAPSED_MINUTES ?? '-'}</td>
+                    <td>${b.OUTPUT_BYTES_DISPLAY || '-'}</td>
+                    <td class="col-action">${logBtn}</td>
+                </tr>`; }).join('');
+    }
+}
+
+async function loadAuditTrail(seq) {
+    const auditBody = document.getElementById('audit-body');
+    if (!auditBody) return;
+    let audit;
+    try {
+        const res = await secureFetch('/api/audit');
+        audit = await res.json();
+    } catch (err) {
+        audit = { success: false, error: err.message };
+    }
+    if (seq != null && seq !== backupLoadSeq) return;
+    if (!audit.success) {
+        auditBody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--accent-red)">Não foi possível ler a auditoria: ${escapeHtml(audit.error || 'erro desconhecido')}</td></tr>`;
+        return;
+    }
+    auditBody.innerHTML = audit.data.length === 0
+        ? `<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-secondary)">Sem registros de auditoria.</td></tr>`
+        : audit.data.map(a => `
+            <tr>
+                <td class="nowrap"><small>${new Date(a.ts).toLocaleString('pt-BR')}</small></td>
+                <td><span class="badge ${a.action === 'logs-limpos' ? 'badge-red' : 'badge-blue'}">${escapeHtml(a.action)}</span></td>
+                <td>${escapeHtml(a.user)} <span style="font-size:0.65rem;color:var(--text-secondary)">(${escapeHtml(a.role)})</span></td>
+                <td><small>${escapeHtml(a.ip)}</small></td>
+                <td><span class="badge ${a.success ? 'badge-green' : 'badge-red'}">${a.success ? 'OK' : 'FALHA'}</span></td>
+                <td><small style="color:var(--text-secondary)" title="${escapeHtml(a.detail || '')}">${escapeHtml((a.detail || '').substring(0, 80))}</small></td>
+            </tr>`).join('');
+}
+
+// Limpar todos os logs (DBA + senha)
+window.openClearLogs = function () {
+    openOpModal({
+        title: 'Limpar todos os logs',
+        subtitle: 'Ação irreversível — exige a senha do DBA',
+        body: `
+            <p>Serão apagados:</p>
+            <ul class="op-list">
+                <li>a trilha de auditoria (<code>audit.log</code> e <code>audit.log.1</code>);</li>
+                <li>os logs dos backups agendados (no Linux, também os do servidor do banco);</li>
+                <li>o histórico de ações do guardião da FRA;</li>
+                <li>os logs do serviço do Oracle Pulse.</li>
+            </ul>
+            <p class="form-hint">Ficam: configurações, agendamentos e o status das tarefas. A nova trilha começa com o registro desta limpeza (quem, quando e de onde).</p>
+            <div class="form-group">
+                <label class="form-label" for="clear-logs-pass">Senha do DBA</label>
+                <input type="password" id="clear-logs-pass" class="form-control" autocomplete="current-password">
+            </div>
+            <div id="clear-logs-result"></div>`,
+        footer: `
+            <button class="btn-primary btn-muted" onclick="closeOpModal()">Cancelar</button>
+            <button class="btn-primary btn-danger" id="clear-logs-btn" onclick="confirmClearLogs()"><i class="fas fa-trash-can"></i> Apagar todos os logs</button>`,
+    });
+    const input = document.getElementById('clear-logs-pass');
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirmClearLogs(); });
+    setTimeout(() => input.focus(), 50);
+};
+
+window.confirmClearLogs = async function () {
+    const input = document.getElementById('clear-logs-pass');
+    const out = document.getElementById('clear-logs-result');
+    const btn = document.getElementById('clear-logs-btn');
+    if (!input || !input.value) {
+        out.innerHTML = '<div class="result-box is-error"><strong>Digite a senha do DBA.</strong></div>';
+        return;
+    }
+    btn.disabled = true;
+    try {
+        const res = await secureFetch('/api/audit/clear', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: input.value }),
+        });
         const json = await res.json();
-        if (!json.success) return;
+        input.value = '';
+        if (!json.success) {
+            out.innerHTML = `<div class="result-box is-error"><strong><i class="fas fa-circle-xmark"></i> ${escapeHtml(json.error || 'Falha ao limpar os logs.')}</strong></div>`;
+            input.focus();
+            return;
+        }
+        out.innerHTML = `<div class="result-box is-ok"><strong><i class="fas fa-circle-check"></i> ${escapeHtml(json.message)}</strong></div>`;
+        document.getElementById('opModalFooter').innerHTML = '<button class="btn-primary" onclick="closeOpModal()">Fechar</button>';
+        loadBackupData(true);
+    } catch (err) {
+        out.innerHTML = `<div class="result-box is-error"><strong>${escapeHtml(err.message)}</strong></div>`;
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+};
+
+// ===================== Otimização de Memória (Advisor) =====================
+window.loadMemoryAdvisor = async function (force = false) {
+    try {
+        const res = await secureFetch(`/api/memory/advisor${force === true ? '?refresh=1' : ''}`);
+        const json = await res.json();
+        if (!json.success) {
+            // Mostra o motivo em vez de deixar a tela em "--" sem retorno.
+            const errEl = document.getElementById('mem-os-error');
+            const recEl = document.getElementById('mem-recommendations');
+            const msg = `Não foi possível carregar a memória: ${json.error || 'erro desconhecido'}`;
+            if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+            if (recEl) recEl.innerHTML = `<div class="result-box is-error"><strong><i class="fas fa-circle-xmark"></i> ${escapeHtml(msg)}</strong></div>`;
+            return;
+        }
         const d = json.data;
         lastMemoryData = d;
         const p = d.params || {};
 
         // KPIs de configuração
-        document.getElementById('mem-mode').textContent = d.mode || '--';
+        // Sigla como valor (ASMM/AMM/MANUAL); o nome por extenso vai no detalhe.
+        const modeFull = String(d.mode || '--');
+        const modeMatch = /^([^(]+?)\s*\((.+)\)\s*$/.exec(modeFull);
+        document.getElementById('mem-mode').textContent = modeMatch ? modeMatch[1] : modeFull;
+        document.getElementById('mem-mode-desc').textContent = modeMatch ? modeMatch[2] : '';
         document.getElementById('mem-sga').textContent = p.sga_target ? `${p.sga_target} MB` : '—';
         document.getElementById('mem-sga-max').textContent = p.sga_max_size ? `${p.sga_max_size} MB` : '—';
         document.getElementById('mem-pga').textContent = p.pga_aggregate_target ? `${p.pga_aggregate_target} MB` : '—';
@@ -1167,7 +1594,7 @@ window.applyMemoryParam = async function (key) {
         });
         const data = await res.json();
         alert(data.success ? data.message : 'Erro: ' + (data.error || 'falha ao aplicar'));
-        if (data.success) loadMemoryAdvisor();
+        if (data.success) loadMemoryAdvisor(true);
     } catch (err) { alert('Erro ao aplicar: ' + err.message); }
 }
 
@@ -1207,6 +1634,21 @@ window.showSgaMaxOrientation = function () {
 }
 
 // ===================== Configuração de Backup (DBA) =====================
+/**
+ * Mostra no campo o valor atual do servidor (ex.: a FRA aumentada pelo guardião),
+ * sem atropelar o que o DBA está digitando ou acabou de sugerir.
+ */
+function syncInput(input, value) {
+    if (!input || value == null || value === '') return;
+    if (!input.dataset.watch) {
+        input.dataset.watch = '1';
+        input.addEventListener('input', () => { input.dataset.dirty = '1'; });
+    }
+    if (String(input.value) === String(value)) { delete input.dataset.dirty; return; }
+    if (input.dataset.dirty === '1' || document.activeElement === input) return;
+    input.value = value;
+}
+
 async function loadBackupConfig() {
     try {
         const res = await secureFetch('/api/backup/config');
@@ -1228,8 +1670,7 @@ async function loadBackupConfig() {
                     `<br><span style="color:var(--text-secondary)">Defina um tamanho e clique em <strong>Aplicar</strong>: o sistema cria a pasta no servidor e a define como destino automaticamente.</span>`;
             }
         }
-        const fraInput = document.getElementById('cfg-fra-size');
-        if (fraInput && !fraInput.value && d.fra.sizeGb) fraInput.value = d.fra.sizeGb;
+        syncInput(document.getElementById('cfg-fra-size'), d.fra.sizeGb);
 
         // Retenção
         const retCur = document.getElementById('cfg-retention-current');
@@ -1242,8 +1683,7 @@ async function loadBackupConfig() {
             if (!d.rmanAutomationReady) txt += '<br><span style="color:var(--accent-orange)">Automação RMAN não configurada (DB_ORACLE_HOME/DB_ORACLE_SID) — o painel mostrará o comando para rodar manualmente.</span>';
             retCur.innerHTML = txt;
         }
-        const retInput = document.getElementById('cfg-retention-days');
-        if (retInput && !retInput.value && d.retention?.days) retInput.value = d.retention.days;
+        syncInput(document.getElementById('cfg-retention-days'), d.retention?.days);
 
         // Política de deleção de archive
         const delpolStatus = document.getElementById('cfg-delpol-status');
@@ -1289,14 +1729,24 @@ window.handleSuggestFra = async function () {
         if (!json.success) return alert('Não foi possível calcular: ' + (json.error || ''));
         const d = json.data;
         const b = d.basis;
-        document.getElementById('cfg-fra-size').value = d.recommendedGb;
+        const sizeInput = document.getElementById('cfg-fra-size');
+        sizeInput.value = d.recommendedGb;
+        sizeInput.dataset.dirty = '1'; // sugestão ainda não aplicada: a atualização não sobrescreve
         let msg = `Sugestão: ${d.recommendedGb} GB para a FRA.\n\n` +
             `Base do cálculo:\n` +
-            `• Redo gerado por dia: ${b.redoPerDayGb} GB\n` +
-            `• Retenção: ${b.retentionDays} dias\n` +
-            `• Fórmula: redo/dia × retenção × 1,5 (margem) + reserva\n`;
-        if (b.freeDiskGb != null) msg += `• Disco livre no volume: ${b.freeDiskGb} GB${b.cappedByDisk ? ' (sugestão limitada a 75% disso)' : ''}\n`;
-        msg += `\nObs.: se seus backups RMAN forem para a FRA, some ~${b.backupAllowanceGb} GB (1 full comprimido do banco de ${b.dbSizeGb} GB).`;
+            `• Redo gerado por dia: ${b.redoPerDayGb} GB · retenção: ${b.retentionDays} dias\n` +
+            `• Archives: redo/dia × retenção × 1,5 (margem) + reserva = ${b.archiveSpaceGb} GB\n`;
+        msg += b.backupsToFra
+            ? `• Backups agendados com destino na FRA: ${b.backupsGb} GB (${b.backupsText}; banco de ${b.dbSizeGb} GB)\n`
+            : `• Backups agendados vão para um diretório próprio: não ocupam a FRA\n`;
+        if (b.freeDiskGb != null) msg += `• Disco livre no volume: ${b.freeDiskGb} GB (+ ${b.fraUsedGb} GB já usados pela FRA)${b.cappedByDisk ? ' — sugestão limitada a 75% desse espaço' : ''}\n`;
+        if (b.cappedByDisk && b.backupsToFra) {
+            msg += `\n⚠️ O disco não comporta a FRA com os backups dentro dela. Aponte os backups para um diretório em OUTRO disco ` +
+                `(Proteção automática da FRA → Destino dos backups). Assim mesmo, antes de cada backup o agendador confere o espaço: ` +
+                `se não couber, o backup do banco não começa (só os archivelogs) e você é avisado — o banco não para.`;
+        } else if (b.backupsToFra) {
+            msg += `\nDica: com os backups em um diretório de outro disco a FRA fica bem menor e um disco que falhe não leva o banco e o backup juntos.`;
+        }
         alert(msg);
     } catch (err) {
         alert('Erro ao sugerir tamanho: ' + err.message);
@@ -1427,7 +1877,7 @@ window.handleSetFraSize = async function () {
         });
         const data = await res.json();
         alert(data.success ? data.message : 'Erro: ' + (data.error || 'falha ao aplicar'));
-        if (data.success) loadBackupData(); // atualiza stat + config (mostra o novo caminho)
+        if (data.success) loadBackupData(true); // atualiza stat + config (mostra o novo caminho)
     } catch (err) { alert('Erro ao aplicar: ' + err.message); }
 }
 
@@ -1474,12 +1924,263 @@ function openTextModal(title, text) {
     modal.style.display = 'block';
 }
 
+// ===================== Modal genérico (opModal) =====================
+const opModalHooks = { onClose: null };
+
+function openOpModal({ title, subtitle = '', body = '', footer = '', wide = false, onClose = null }) {
+    const modal = document.getElementById('opModal');
+    if (opModalHooks.onClose) { try { opModalHooks.onClose(); } catch (e) { /* ignore */ } }
+    opModalHooks.onClose = onClose;
+    document.getElementById('opModalTitle').textContent = title;
+    const sub = document.getElementById('opModalSubtitle');
+    sub.textContent = subtitle;
+    sub.hidden = !subtitle;
+    document.getElementById('opModalBody').innerHTML = body;
+    document.getElementById('opModalFooter').innerHTML = footer;
+    modal.classList.toggle('is-wide', !!wide);
+    modal.style.display = 'block';
+}
+
+window.closeOpModal = function () {
+    document.getElementById('opModal').style.display = 'none';
+    if (opModalHooks.onClose) { try { opModalHooks.onClose(); } catch (e) { /* ignore */ } }
+    opModalHooks.onClose = null;
+};
+
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('opModal')?.style.display === 'block') closeOpModal();
+});
+
+// ===================== Relógio do servidor x NTP =====================
+let timeStatus = null;      // última resposta de /api/time/status
+let timeStatusPerf = 0;     // performance.now() quando chegou (para o relógio andar no modal)
+let timeTicker = null;
+
+function fmtOffset(ms) {
+    if (ms == null || !Number.isFinite(ms)) return '--';
+    const sign = ms >= 0 ? '+' : '−';
+    const a = Math.abs(ms);
+    if (a < 1000) return `${sign}${Math.round(a)} ms`;
+    if (a < 60000) return `${sign}${(a / 1000).toFixed(1).replace('.', ',')} s`;
+    const t = Math.round(a / 1000);
+    const d = Math.floor(t / 86400), h = Math.floor((t % 86400) / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+    const parts = [];
+    if (d) parts.push(`${d} d`);
+    if (h) parts.push(`${h} h`);
+    if (m) parts.push(`${m} min`);
+    if (s && !d) parts.push(`${s} s`);
+    return sign + parts.join(' ');
+}
+
+/** ok (≤ tolerância), warn (≤ 30 s), bad (> 30 s), unknown. */
+function driftLevel(st) {
+    if (!st || st.offsetMs == null) return 'unknown';
+    const a = Math.abs(st.offsetMs);
+    if (a <= (st.tolerance || 1500)) return 'ok';
+    return a <= 30000 ? 'warn' : 'bad';
+}
+
+/** Formata um instante (ms) no fuso do servidor ("-03:00"), sem depender do fuso do navegador. */
+function fmtInTz(ms, tz) {
+    const m = /^([+-])(\d{2}):(\d{2})$/.exec(tz || '');
+    const off = m ? (m[1] === '-' ? -1 : 1) * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10)) : -new Date(ms).getTimezoneOffset();
+    const d = new Date(ms + off * 60000);
+    const p = (n) => String(n).padStart(2, '0');
+    return {
+        date: `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`,
+        time: `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`,
+    };
+}
+
+function renderClockBadge() {
+    const el = document.getElementById('clock-drift');
+    const btn = document.getElementById('clock-sync-btn');
+    if (!el || !btn) return;
+    const level = driftLevel(timeStatus);
+    btn.classList.remove('is-ok', 'is-warn', 'is-bad', 'is-unknown');
+    btn.classList.add(`is-${level}`);
+    if (level === 'ok') {
+        el.innerHTML = '<i class="fas fa-check"></i> NTP';
+        btn.title = `Hora do servidor sincronizada com ${timeStatus.ntp.server} (diferença ${fmtOffset(timeStatus.offsetMs)}). Clique para detalhes.`;
+    } else if (level === 'unknown') {
+        el.textContent = 'NTP';
+        btn.title = 'Não foi possível comparar a hora do servidor com o NTP agora. Clique para detalhes.';
+    } else {
+        el.textContent = fmtOffset(timeStatus.offsetMs);
+        btn.title = `Servidor ${timeStatus.offsetMs > 0 ? 'adiantado' : 'atrasado'} ${fmtOffset(timeStatus.offsetMs)} em relação ao NTP ${timeStatus.ntp.server}. Clique para sincronizar.`;
+    }
+}
+
+async function loadTimeStatus(force) {
+    try {
+        const res = await secureFetch(`/api/time/status${force ? '?force=1' : ''}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'falha');
+        timeStatus = json.data;
+        timeStatusPerf = performance.now();
+    } catch (err) {
+        timeStatus = null;
+    }
+    renderClockBadge();
+    return timeStatus;
+}
+
+function timeSyncBody(st, resultHtml = '') {
+    const level = driftLevel(st);
+    const tz = st?.server?.tz || '';
+    const serverOs = st?.serverOs === 'windows' ? 'Windows' : st?.serverOs === 'linux' ? 'Linux' : 'servidor';
+    const servers = (st?.servers || []).map((s) => `<option value="${escapeHtml(s)}">`).join('');
+    const offTxt = st?.offsetMs == null ? '--' : fmtOffset(st.offsetMs);
+    const offLabel = st?.offsetMs == null ? 'sem comparação' : level === 'ok' ? 'sincronizado' : st.offsetMs > 0 ? 'servidor adiantado' : 'servidor atrasado';
+    const ntpInfo = st?.ntp?.ok
+        ? `${escapeHtml(st.ntp.server)} · stratum ${st.ntp.stratum}${st.ntp.refId ? ` · ${escapeHtml(st.ntp.refId)}` : ''}`
+        : `<span class="txt-error">NTP inacessível a partir do painel</span>`;
+    const panelNote = st?.panelOffsetMs != null && Math.abs(st.panelOffsetMs) > 2000
+        ? `<div class="tip-box"><i class="fas fa-circle-info"></i> O relógio <strong>deste painel</strong> também está ${fmtOffset(st.panelOffsetMs)} do NTP. Isso não afeta a medição (o NTP é a referência), mas a hora "Sync" do topo usa o relógio do seu navegador.</div>`
+        : '';
+    const backwards = st?.offsetMs != null && st.offsetMs > 60000
+        ? `<div class="storage-warnings"><i class="fas fa-triangle-exclamation"></i> O relógio do servidor vai <strong>voltar ${fmtOffset(st.offsetMs).slice(1)}</strong>. O Oracle tolera o ajuste (o SCN não depende do relógio), mas jobs agendados e registros com data desse intervalo podem se repetir. Prefira fazer fora do horário de pico.</div>`
+        : '';
+    const how = st?.serverOs === 'windows'
+        ? 'Configura o serviço <strong>Horário do Windows (w32time)</strong> com este servidor NTP e força a ressincronização. Em servidor membro de domínio, segue a hora do controlador de domínio.'
+        : 'Usa o serviço de horário do Linux (<strong>chrony</strong>, <strong>ntpd</strong> ou <strong>systemd-timesyncd</strong>), deixando-o configurado com este servidor NTP, e corrige a hora imediatamente.';
+    return `
+        <div class="clock-grid">
+            <div class="clock-card">
+                <span class="clock-label"><i class="fas fa-server"></i> Servidor de banco (${serverOs})</span>
+                <div class="clock-value" id="clk-server">${st?.server ? '--:--:--' : '<span class="txt-error">indisponível</span>'}</div>
+                <small id="clk-server-date">${st?.server ? '' : escapeHtml(st?.serverError || '')}</small>
+            </div>
+            <div class="clock-card">
+                <span class="clock-label"><i class="fas fa-satellite-dish"></i> Referência NTP</span>
+                <div class="clock-value" id="clk-ntp">--:--:--</div>
+                <small>${ntpInfo}</small>
+            </div>
+            <div class="clock-card is-${level}">
+                <span class="clock-label"><i class="fas fa-scale-unbalanced"></i> Diferença</span>
+                <div class="clock-value">${offTxt}</div>
+                <small>${offLabel}${tz ? ` · fuso do servidor UTC${escapeHtml(tz)}` : ''}</small>
+            </div>
+        </div>
+        ${panelNote}
+        <div class="form-group dba-only-inline">
+            <label class="form-label" for="ntp-server-input">Servidor NTP</label>
+            <input id="ntp-server-input" class="form-control" list="ntp-server-list" value="${escapeHtml(st?.ntp?.server || st?.defaultServer || 'a.st1.ntp.br')}" autocomplete="off" spellcheck="false">
+            <datalist id="ntp-server-list">${servers}</datalist>
+            <div class="form-hint">Padrão: NTP.br (Observatório Nacional). A lista vem de <code>NTP_SERVERS</code> no .env.</div>
+        </div>
+        <div class="tip-box"><i class="fas fa-gears"></i> ${how}</div>
+        ${backwards}
+        <div id="time-sync-result">${resultHtml}</div>`;
+}
+
+function timeSyncFooter(busy) {
+    const sync = userRole === 'dba'
+        ? `<button class="btn-primary btn-success" id="time-sync-run" onclick="runTimeSync()" ${busy ? 'disabled' : ''}>
+               <i class="fas ${busy ? 'fa-spinner fa-spin' : 'fa-rotate'}"></i> ${busy ? 'Sincronizando...' : 'Sincronizar agora'}</button>`
+        : '<span class="form-hint">Somente o perfil DBA pode sincronizar.</span>';
+    return `<button class="btn-primary btn-muted" onclick="refreshTimeSync()" ${busy ? 'disabled' : ''}><i class="fas fa-arrows-rotate"></i> Medir novamente</button>${sync}`;
+}
+
+function startClockTicker() {
+    if (timeTicker) clearInterval(timeTicker);
+    const tick = () => {
+        const st = timeStatus;
+        if (!st) return;
+        const elapsed = performance.now() - timeStatusPerf;
+        const sEl = document.getElementById('clk-server');
+        const sDate = document.getElementById('clk-server-date');
+        const nEl = document.getElementById('clk-ntp');
+        if (st.server && sEl) {
+            const f = fmtInTz(st.server.epochMs + elapsed, st.server.tz);
+            sEl.textContent = f.time;
+            if (sDate) sDate.textContent = f.date;
+        }
+        if (nEl && st.server && st.offsetMs != null) nEl.textContent = fmtInTz(st.server.epochMs - st.offsetMs + elapsed, st.server.tz).time;
+        else if (nEl) nEl.textContent = st.ntp?.ok ? '--:--:--' : 'indisponível';
+    };
+    tick();
+    timeTicker = setInterval(tick, 1000);
+}
+
+function renderTimeSyncModal(resultHtml = '', busy = false) {
+    openOpModal({
+        title: 'Hora do servidor x NTP',
+        subtitle: 'Compara o relógio do servidor de banco com um servidor de hora oficial e sincroniza',
+        body: timeSyncBody(timeStatus, resultHtml),
+        footer: timeSyncFooter(busy),
+        onClose: () => { if (timeTicker) clearInterval(timeTicker); timeTicker = null; },
+    });
+    if (userRole !== 'dba') document.querySelectorAll('#opModal .dba-only-inline').forEach((el) => { el.hidden = true; });
+    startClockTicker();
+}
+
+window.openTimeSync = async function () {
+    renderTimeSyncModal('<div class="empty-state"><i class="fas fa-spinner fa-spin"></i> Medindo a diferença...</div>', true);
+    await loadTimeStatus(true);
+    renderTimeSyncModal();
+};
+
+window.refreshTimeSync = async function () {
+    const keep = document.getElementById('ntp-server-input')?.value;
+    renderTimeSyncModal('<div class="empty-state"><i class="fas fa-spinner fa-spin"></i> Medindo a diferença...</div>', true);
+    await loadTimeStatus(true);
+    renderTimeSyncModal();
+    if (keep) document.getElementById('ntp-server-input').value = keep;
+};
+
+window.runTimeSync = async function () {
+    const server = (document.getElementById('ntp-server-input')?.value || '').trim();
+    renderTimeSyncModal('<div class="empty-state"><i class="fas fa-spinner fa-spin"></i> Sincronizando o relógio do servidor (pode levar até 1 minuto)...</div>', true);
+    const input = document.getElementById('ntp-server-input');
+    if (input) input.value = server;
+    let html = '';
+    try {
+        const res = await secureFetch('/api/time/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ server }),
+        });
+        const json = await res.json();
+        const d = json.data;
+        if (d && d.after && d.after.offsetMs !== undefined) {
+            timeStatus = { ...(timeStatus || {}), ...d.after };
+            timeStatusPerf = performance.now();
+        }
+        const ok = !!json.success;
+        const steps = (d?.steps || []).map((s) => `<li>${escapeHtml(s)}</li>`).join('');
+        const persist = (d?.persist || []).length ? `<div class="form-hint">Configuração gravada em: ${d.persist.map((p) => `<code>${escapeHtml(p)}</code>`).join(', ')}</div>` : '';
+        const warns = (d?.warnings || []).map((w) => `<div class="storage-warnings"><i class="fas fa-triangle-exclamation"></i> ${escapeHtml(w)}</div>`).join('');
+        const log = (d?.log || []).length ? `<details class="op-details"><summary>Saída do servidor</summary><pre>${escapeHtml(d.log.join('\n'))}</pre></details>` : '';
+        html = `
+            <div class="result-box ${ok ? 'is-ok' : 'is-error'}">
+                <strong><i class="fas ${ok ? 'fa-circle-check' : 'fa-circle-xmark'}"></i> ${escapeHtml(json.success ? d.message : (json.error || d?.message || 'Falha na sincronização'))}</strong>
+                ${d?.method ? `<div class="form-hint">Método: ${escapeHtml(d.method)}${d.fallbackUsed ? ' + ajuste direto' : ''} · antes: ${fmtOffset(d.before?.offsetMs)} · depois: ${fmtOffset(d.after?.offsetMs)}</div>` : ''}
+                ${steps ? `<ul class="step-list">${steps}</ul>` : ''}
+                ${persist}
+            </div>${warns}${log}`;
+    } catch (err) {
+        html = `<div class="result-box is-error"><strong><i class="fas fa-circle-xmark"></i> Erro de comunicação: ${escapeHtml(err.message)}</strong></div>`;
+    }
+    renderClockBadge();
+    renderTimeSyncModal(html);
+    if (server) document.getElementById('ntp-server-input').value = server;
+    refreshData();
+};
+
 // ===================== Atualização global após execuções =====================
 // Recarrega os dados de TODAS as telas. Chamado ao fim de um job (backup,
 // archivelog, limpeza) ou de um comando DML/DDL no Terminal SQL.
+// Só a tela aberta recarrega na hora; as outras buscam dados novos quando forem
+// abertas (sem disparar todas as consultas e leituras via SSH de uma vez).
 function refreshAllSections() {
-    [refreshData, loadStorageData, loadSessionsData, loadMemoryAdvisor, loadBackupData, loadTrendData]
-        .forEach((fn) => { try { fn(); } catch (e) { /* cada loader trata o próprio erro */ } });
+    Object.keys(sectionLoadedAt).forEach((k) => delete sectionLoadedAt[k]);
+    ['storage', 'memory', 'backup', 'sessions'].forEach((k) => sectionForceNext.add(k));
+    refreshData();
+    const current = activeSectionId();
+    if (current === 'overview') loadTrendData();
+    if (SECTION_LOADERS[current]) loadSectionIfStale(current, SECTION_LOADERS[current]);
 }
 
 // ===================== Logs de Backup =====================
@@ -1647,9 +2348,27 @@ window.exportSessionsCsv = function () {
 }
 
 window.closeModal = () => document.getElementById('sqlModal').style.display = 'none';
+/**
+ * Copia texto. navigator.clipboard só existe em contexto seguro (HTTPS ou
+ * localhost); acessando o painel por IP em HTTP, usa o método antigo.
+ */
+function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise((resolve, reject) => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy') ? resolve() : reject(new Error('cópia recusada')); } catch (e) { reject(e); } finally { ta.remove(); }
+    });
+}
+
 window.copySql = () => {
     const content = document.getElementById('fullSqlContent').textContent;
-    navigator.clipboard.writeText(content).then(() => alert('Copiado!'));
+    copyText(content).then(() => alert('Copiado!')).catch(() => alert('Não foi possível copiar: selecione o texto e use Ctrl+C.'));
 }
 
 window.handleOptimize = async function () {

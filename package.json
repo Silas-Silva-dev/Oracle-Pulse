@@ -1,6 +1,6 @@
 {
   "name": "oracle-pulse",
-  "version": "2.0.0",
+  "version": "2.3.0",
   "description": "Painel de monitoramento Oracle (performance, sessões, storage, backup)",
   "main": "server.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "dev": "node --watch server.js",
     "demo": "node -e \"process.env.DEMO_MODE='true';require('./server.js')\"",
     "hash": "node bin/hash-password.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test \"test/*.test.js\""
   },
   "keywords": [
     "oracle",

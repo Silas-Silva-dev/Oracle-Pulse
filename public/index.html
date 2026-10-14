@@ -5,8 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Oracle Pulse | Monitoring</title>
-    <link rel="icon" type="image/png" href="favicon.png?v=5">
+    <link rel="icon" href="favicon.ico?v=6" sizes="16x16 24x24 32x32 48x48">
+    <link rel="icon" type="image/png" sizes="192x192" href="favicon.png?v=6">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="recovery.css">
+    <link rel="stylesheet" href="protection.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -16,7 +19,7 @@
     <div id="login-overlay" class="login-overlay">
         <div class="login-card">
             <div class="login-logo">
-                <img src="logo.png" alt="Oracle Pulse">
+                <img src="logo-wide.png" alt="Oracle Pulse">
             </div>
             <h2>Acesso Restrito</h2>
             <p>Identifique-se para gerenciar o Oracle Pulse</p>
@@ -44,7 +47,7 @@
     <aside>
         <div class="logo">
             <!-- Logo do Oracle Pulse -->
-            <img src="logo.png" alt="Oracle Pulse" style="width: 100%; max-width: 180px; height: auto;">
+            <img src="logo-wide.png" alt="Oracle Pulse">
         </div>
         <nav>
             <ul class="nav-menu">
@@ -56,7 +59,10 @@
                 <li><a class="nav-item" data-section="sessions"><i class="fas fa-users-viewfinder"></i> Sessões</a></li>
                 <li><a class="nav-item" data-section="memory"><i class="fas fa-memory"></i> Memória</a></li>
                 <li><a class="nav-item" data-section="backup"><i class="fas fa-shield-halved"></i> Backup &amp; Auditoria</a></li>
+                <li><a class="nav-item" data-section="recovery"><i class="fas fa-kit-medical"></i> Recuperação <span id="nav-rec-badge" class="nav-badge" hidden></span></a></li>
                 <li class="dba-only"><a class="nav-item" data-section="sql-terminal"><i class="fas fa-terminal"></i> Terminal SQL</a></li>
+                <li class="dba-only"><a class="nav-item" data-section="terminal"><i class="fas fa-server"></i> Terminal</a></li>
+                <li><a class="nav-item" data-section="about"><i class="fas fa-circle-info"></i> Sobre <span id="nav-update-badge" class="nav-badge" hidden></span></a></li>
                 <li style="margin-top: auto; padding-top: 2rem;">
                     <a href="#" onclick="handleLogout()" class="nav-item logout-link" style="color: var(--accent-red)">
                         <i class="fas fa-sign-out-alt"></i> Sair
@@ -92,7 +98,7 @@
                 <div class="header-title"
                     style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                     <div>
-                        <h1>System Dashboard</h1>
+                        <h1>Dashboard</h1>
                         <div id="db-health">
                             <span class="badge badge-green"><i class="fas fa-circle"></i> INSTÂNCIA: <span
                                     id="instance-name">...</span></span>
@@ -101,18 +107,22 @@
                             <span class="badge" id="role-badge" style="margin-left: 10px; background: rgba(100,116,139,0.15); color: var(--text-secondary);"><i class="fas fa-id-badge"></i> <span id="role-text">...</span></span>
                             <span id="last-update"
                                 style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 15px;"></span>
-                            <span id="server-time"
-                                style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 15px; border-left: 1px solid #e2e8f0; padding-left: 15px;"></span>
+                            <span class="server-clock">
+                                <span id="server-time"></span>
+                                <button id="clock-sync-btn" class="clock-btn" type="button" onclick="openTimeSync()"
+                                    title="Comparar a hora do servidor com um servidor NTP e sincronizar">
+                                    <i class="fas fa-satellite-dish"></i>
+                                    <span id="clock-drift" class="clock-drift">NTP</span>
+                                </button>
+                            </span>
                         </div>
                     </div>
                     <div
                         style="background: var(--bg-card); padding: 8px 15px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 10px;">
                         <label for="refresh-rate"
-                            style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600;"><i
-                                class="fas fa-clock"></i> Auto Refresh:</label>
-                        <select id="refresh-rate"
-                            style="background: rgba(0,0,0,0.2); color: white; border: 1px solid rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 6px; outline: none; cursor: pointer;">
-                            <option value="1000">1s</option>
+                            style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; white-space: nowrap;"><i
+                                class="fas fa-clock"></i> Atualização:</label>
+                        <select id="refresh-rate" class="refresh-select">
                             <option value="5000" selected>5s</option>
                             <option value="10000">10s</option>
                             <option value="30000">30s</option>
@@ -125,11 +135,11 @@
 
             <div class="stats-grid">
                 <div class="stat-card">
-                    <span class="stat-label">Sessões <br>Ativas</span>
+                    <span class="stat-label">Sessões Ativas</span>
                     <div id="active-sessions-count" class="stat-value">0</div>
                 </div>
                 <div class="stat-card">
-                    <span class="stat-label">Sessões <br>Travadas</span>
+                    <span class="stat-label">Sessões Travadas</span>
                     <div id="locked-sessions-count" class="stat-value">0</div>
                 </div>
                 <div class="stat-card">
@@ -160,25 +170,28 @@
                         <span class="text-secondary" style="font-size: 0.8rem;">Histórico recente (amostras a cada 30s)</span>
                     </div>
                     <canvas id="trendChart"></canvas>
+                    <div id="trend-empty" class="chart-empty"><i class="fas fa-hourglass-half"></i> Aguardando amostras — o histórico é coletado pelo servidor a cada 30 s.</div>
                 </div>
                 <div class="card col-12">
                     <div class="card-header">
                         <span class="card-title"><i class="fas fa-bolt"></i> Top SQL Queries (Consumo de CPU)</span>
                     </div>
                     <div class="table-container">
-                        <table>
+                        <table class="sql-table">
+                            <colgroup><col class="c-id"><col class="c-num"><col class="c-num"><col><col class="c-act"></colgroup>
                             <thead>
                                 <tr>
                                     <th>SQL_ID</th>
                                     <th>CPU Time (s)</th>
                                     <th>Execuções</th>
                                     <th>SQL Snippet</th>
-                                    <th>Ação</th>
+                                    <th class="col-action">Ação</th>
                                 </tr>
                             </thead>
                             <tbody id="top-sql-body"></tbody>
                         </table>
                     </div>
+                    <div class="pulse-note" id="top-sql-body-note"></div>
                 </div>
 
                 <div class="card col-6">
@@ -223,7 +236,7 @@
         <section id="performance" class="page-section">
             <header>
                 <div class="header-title">
-                    <h1>Performance Analytics</h1>
+                    <h1>Performance</h1>
                     <p>Métricas em tempo real de latência e carga do banco</p>
                 </div>
             </header>
@@ -232,12 +245,12 @@
                 <div class="stat-card">
                     <span class="stat-label">DB Wait Time Ratio</span>
                     <div class="stat-value" id="wait-ratio">--</div>
-                    <small id="wait-ratio-label" style="color: var(--text-secondary)">Carregando...</small>
+                    <small id="wait-ratio-label" style="color: var(--text-secondary)">do DB time em espera</small>
                 </div>
                 <div class="stat-card">
                     <span class="stat-label">CPU Time Ratio</span>
                     <div class="stat-value" id="cpu-ratio">--</div>
-                    <small id="cpu-ratio-label" style="color: var(--text-secondary)">Carregando...</small>
+                    <small id="cpu-ratio-label" style="color: var(--text-secondary)">do DB time em CPU</small>
                 </div>
                 <div class="stat-card">
                     <span class="stat-label">Response Time</span>
@@ -251,14 +264,10 @@
                     </div>
                     <small id="critical-event-class" style="color: var(--accent-red)">Nenhum</small>
                 </div>
-                <div class="stat-card dba-only"
-                    style="display: flex; align-items: center; justify-content: center; background: rgba(37, 99, 235, 0.05); border: 1px dashed var(--accent-blue);">
-                    <button class="btn-primary" onclick="handleOptimize()"
-                        style="width: 100%; height: 100%; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: var(--accent-blue); padding: 10px;">
-                        <i class="fas fa-magic" style="font-size: 1.4rem;"></i>
-                        <span style="font-size: 0.8rem; font-weight: 700; text-align: center;">Otimizar Banco de Dados
-                            (Analyse)</span>
-                    </button>
+                <div class="stat-card stat-action dba-only">
+                    <span class="stat-label">Manutenção</span>
+                    <button class="btn-primary btn-sm" onclick="handleOptimize()" title="ANALYZE das tabelas"><i class="fas fa-wand-magic-sparkles"></i> Otimizar</button>
+                    <small>ANALYZE: estatísticas das tabelas</small>
                 </div>
             </div>
 
@@ -268,19 +277,21 @@
                         <h3 class="card-title"><i class="fas fa-list-ol"></i> Top SQL Queries (Consumo de CPU)</h3>
                     </div>
                     <div class="table-container">
-                        <table>
+                        <table class="sql-table">
+                            <colgroup><col class="c-id"><col class="c-num"><col class="c-num"><col><col class="c-act"></colgroup>
                             <thead>
                                 <tr>
                                     <th>SQL_ID</th>
                                     <th>CPU Time (s)</th>
                                     <th>Execuções</th>
                                     <th>SQL Snippet</th>
-                                    <th>Ação</th>
+                                    <th class="col-action">Ação</th>
                                 </tr>
                             </thead>
                             <tbody id="top-sql-body-perf"></tbody>
                         </table>
                     </div>
+                    <div class="pulse-note" id="top-sql-body-perf-note"></div>
                 </div>
                 <div class="card col-4">
                     <div class="card-header">
@@ -300,8 +311,11 @@
         <!-- OTHER SECTIONS -->
         <section id="storage" class="page-section">
             <header>
-                <h1>Storage Management</h1>
-                <div style="display: flex; gap: 10px;">
+                <div class="header-title">
+                    <h1>Storage</h1>
+                    <p>Tablespaces, datafiles e espaço dos volumes do servidor</p>
+                </div>
+                <div class="header-actions">
                     <button class="btn-primary" style="background: var(--accent-green);" onclick="exportStorageCsv()">
                         <i class="fas fa-file-csv"></i> Exportar CSV
                     </button>
@@ -311,24 +325,14 @@
                 </div>
             </header>
 
-            <!-- OS Disk Storage -->
-            <div class="card col-12" style="margin-bottom: 2rem;">
+            <!-- Volumes do servidor (um por disco/ponto de montagem/disk group com arquivos do banco) -->
+            <div class="card col-12 section-gap">
                 <div class="card-header">
                     <h3 class="card-title"><i class="fas fa-hdd"></i> Espaço no Servidor (SO)</h3>
+                    <span class="card-subtitle">Volumes com datafiles e tempfiles do banco</span>
                 </div>
-                <div class="card-body" style="padding: 1.5rem;">
-                    <div
-                        style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
-                        <span id="os-disk-path"
-                            style="font-weight: 700; font-size: 1.1rem; color: var(--text-main);">Carregando...</span>
-                        <span id="os-disk-text" style="font-weight: 600; color: var(--text-secondary);">-- / --</span>
-                    </div>
-                    <div
-                        style="width: 100%; background: var(--bg-main); border-radius: 8px; height: 24px; overflow: hidden; border: 1px solid var(--border-color);">
-                        <div id="os-disk-bar"
-                            style="height: 100%; background: var(--accent-blue); width: 0%; transition: width 0.5s ease; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8rem; font-weight: bold;">
-                        </div>
-                    </div>
+                <div id="os-volumes" class="volume-list">
+                    <div class="empty-state"><i class="fas fa-spinner fa-spin"></i> Carregando volumes...</div>
                 </div>
             </div>
 
@@ -342,23 +346,20 @@
                     <div class="card-header">
                         <h3 class="card-title"><i class="fas fa-expand-arrows-alt"></i> Redimensionar Datafile</h3>
                     </div>
-                    <div class="card-body" style="padding: 1.5rem;">
-                        <div class="form-group" style="margin-bottom: 1rem;">
-                            <label
-                                style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text-secondary);">Selecionar
-                                Datafile</label>
-                            <select id="resize-file-select" class="form-control"
-                                style="width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-main);"></select>
+                    <div class="card-body form-stack">
+                        <div class="form-group">
+                            <label class="form-label" for="resize-file-select">Selecionar Datafile</label>
+                            <select id="resize-file-select" class="form-control"></select>
+                            <div id="resize-file-hint" class="form-hint"></div>
                         </div>
-                        <div class="form-group" style="margin-bottom: 1.5rem;">
-                            <label
-                                style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text-secondary);">Novo
-                                Tamanho (MB)</label>
-                            <input type="number" id="resize-new-size" class="form-control" placeholder="Ex: 27000"
-                                style="width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-main);">
+                        <div class="form-group">
+                            <label class="form-label" for="resize-new-size">Novo Tamanho (MB)</label>
+                            <input type="number" id="resize-new-size" class="form-control" placeholder="Ex: 27000" min="1">
                         </div>
-                        <button class="btn-primary" onclick="handleResize()"
-                            style="width: 100%; justify-content: center;">
+                        <div class="tip-box"><i class="fas fa-lightbulb"></i> Aumentar usa o espaço livre do volume do
+                            próprio arquivo (conferido antes de executar). Reduzir só é possível até o último bloco em uso —
+                            abaixo disso o Oracle retorna ORA-03297.</div>
+                        <button class="btn-primary btn-block" onclick="handleResize()">
                             <i class="fas fa-save"></i> Redimensionar Datafile
                         </button>
                     </div>
@@ -369,32 +370,27 @@
                     <div class="card-header">
                         <h3 class="card-title"><i class="fas fa-plus-circle"></i> Adicionar Novo Datafile</h3>
                     </div>
-                    <div class="card-body" style="padding: 1.5rem;">
-                        <div class="form-group" style="margin-bottom: 1rem;">
-                            <label
-                                style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text-secondary);">Tablespace
-                                Destino</label>
-                            <select id="add-ts-select" class="form-control"
-                                style="width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-main);"></select>
+                    <div class="card-body form-stack">
+                        <div class="form-group">
+                            <label class="form-label" for="add-ts-select">Tablespace Destino</label>
+                            <select id="add-ts-select" class="form-control"></select>
                         </div>
-                        <div class="form-group" style="margin-bottom: 1rem;">
-                            <label
-                                style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text-secondary);">Nome
-                                do Arquivo</label>
-                            <div style="display: flex; gap: 5px;">
-                                <input type="text" id="add-file-name" class="form-control" placeholder="Ex: DADOS2.DBF"
-                                    style="flex: 1; padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-main);">
-                            </div>
+                        <div class="form-group">
+                            <label class="form-label" for="add-dir-select">Diretório de Destino</label>
+                            <select id="add-dir-select" class="form-control"></select>
+                            <input type="text" id="add-dir-custom" class="form-control" hidden
+                                placeholder="Ex.: /u04/oradata/ORCL  ou  E:\ORACLE\ORADATA\ORCL">
                         </div>
-                        <div class="form-group" style="margin-bottom: 1.5rem;">
-                            <label
-                                style="display: block; margin-bottom: 0.5rem; font-weight: 500; color: var(--text-secondary);">Tamanho
-                                Inicial (MB)</label>
-                            <input type="number" id="add-file-size" class="form-control" placeholder="Ex: 5000"
-                                style="width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-main);">
+                        <div class="form-group">
+                            <label class="form-label" for="add-file-name">Nome do Arquivo</label>
+                            <input type="text" id="add-file-name" class="form-control" placeholder="Ex: dados64.dbf">
                         </div>
-                        <button class="btn-primary" onclick="handleAddFile()"
-                            style="width: 100%; justify-content: center; background: var(--accent-green);">
+                        <div class="form-group">
+                            <label class="form-label" for="add-file-size">Tamanho Inicial (MB)</label>
+                            <input type="number" id="add-file-size" class="form-control" placeholder="Ex: 5000" min="1">
+                        </div>
+                        <div id="add-file-preview" class="path-preview" hidden></div>
+                        <button class="btn-primary btn-block btn-success" onclick="handleAddFile()">
                             <i class="fas fa-plus"></i> Criar Datafile
                         </button>
                     </div>
@@ -404,17 +400,24 @@
 
         <section id="sessions" class="page-section">
             <header>
-                <h1>Sessões Bloqueadas (Locks)</h1>
-                <div style="display: flex; gap: 10px;">
+                <div class="header-title">
+                    <h1>Sessões e Bloqueios</h1>
+                    <p>Locks entre sessões, sessões de longa duração e encerramento de sessões</p>
+                </div>
+                <div class="header-actions">
                     <button class="btn-primary" style="background: var(--accent-green);" onclick="exportSessionsCsv()">
                         <i class="fas fa-file-csv"></i> Exportar CSV
                     </button>
-                    <button id="refresh-sessions" class="btn-primary" style="background: var(--accent-red);">
+                    <button id="refresh-sessions" class="btn-primary">
                         <i class="fas fa-sync-alt"></i> Atualizar Agora
                     </button>
                 </div>
             </header>
             <div class="card col-12" style="margin-bottom: 2rem;">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-lock"></i> Sessões Bloqueadas (Locks)</h3>
+                    <span class="card-subtitle">Vítima, bloqueador e programa</span>
+                </div>
                 <div class="table-container">
                     <table id="full-sessions-table">
                         <thead>
@@ -423,7 +426,7 @@
                                 <th>Vítima (Bloqueado)</th>
                                 <th>Vilão (Bloqueador)</th>
                                 <th>Programa</th>
-                                <th>Ação</th>
+                                <th class="col-action">Ação</th>
                             </tr>
                         </thead>
                         <tbody id="sessions-body"></tbody>
@@ -444,7 +447,7 @@
                                 <th>Tempo Ativo</th>
                                 <th>Evento</th>
                                 <th>SQL_ID</th>
-                                <th>Ação</th>
+                                <th class="col-action">Ação</th>
                             </tr>
                         </thead>
                         <tbody id="long-running-body"></tbody>
@@ -460,7 +463,7 @@
                     <h1>Otimização de Memória</h1>
                     <p>RAM real do servidor + conselheiros do Oracle (sugestões seguras de dimensionamento)</p>
                 </div>
-                <button id="refresh-memory" class="btn-primary" onclick="loadMemoryAdvisor()">
+                <button id="refresh-memory" class="btn-primary" onclick="loadMemoryAdvisor(true)">
                     <i class="fas fa-sync-alt"></i> Atualizar Agora
                 </button>
             </header>
@@ -468,7 +471,8 @@
             <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
                 <div class="stat-card">
                     <span class="stat-label">Modo de Memória</span>
-                    <div class="stat-value" id="mem-mode" style="font-size: 1.05rem;">--</div>
+                    <div class="stat-value" id="mem-mode">--</div>
+                    <small id="mem-mode-desc" style="color: var(--text-secondary)"></small>
                 </div>
                 <div class="stat-card">
                     <span class="stat-label">SGA Atual</span>
@@ -570,7 +574,7 @@
                     <h1>Backup &amp; Auditoria</h1>
                     <p>Status de recuperação (RMAN / Archivelog / FRA) e trilha de auditoria das ações</p>
                 </div>
-                <button id="refresh-backup" class="btn-primary" onclick="loadBackupData()">
+                <button id="refresh-backup" class="btn-primary" onclick="loadBackupData(true)">
                     <i class="fas fa-sync-alt"></i> Atualizar Agora
                 </button>
             </header>
@@ -690,6 +694,23 @@
                 </div>
             </div>
 
+            <!-- Proteção automática: backups agendados no servidor + guardião da FRA (DBA) -->
+            <div class="card col-12 dba-only section-gap" id="protection-card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-shield-heart"></i> Proteção automática da FRA</h3>
+                    <span id="prot-summary" class="card-subtitle"></span>
+                </div>
+                <div id="prot-layers" class="prot-layers"></div>
+                <div class="prot-grid">
+                    <section id="prot-schedule" class="prot-panel">
+                        <div class="empty-state"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>
+                    </section>
+                    <section id="prot-guard" class="prot-panel">
+                        <div class="empty-state"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>
+                    </section>
+                </div>
+            </div>
+
             <div class="main-grid">
                 <div class="card col-12">
                     <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
@@ -708,7 +729,7 @@
                                     <th>Fim</th>
                                     <th>Duração (min)</th>
                                     <th>Tamanho</th>
-                                    <th>Log</th>
+                                    <th class="col-action">Log</th>
                                 </tr>
                             </thead>
                             <tbody id="rman-body"></tbody>
@@ -719,6 +740,7 @@
                 <div class="card col-12 dba-only">
                     <div class="card-header">
                         <h3 class="card-title"><i class="fas fa-clipboard-list"></i> Trilha de Auditoria (ações sensíveis)</h3>
+                        <button class="btn-primary btn-danger btn-xs" onclick="openClearLogs()"><i class="fas fa-trash-can"></i> Limpar todos os logs</button>
                     </div>
                     <div class="table-container audit-scroll">
                         <table>
@@ -733,6 +755,107 @@
                                 </tr>
                             </thead>
                             <tbody id="audit-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: RECUPERAÇÃO -->
+        <section id="recovery" class="page-section">
+            <header>
+                <div class="header-title">
+                    <h1>Recuperação</h1>
+                    <p>Diagnóstico de falhas e corrupção, procedimentos guiados e execução assistida</p>
+                </div>
+                <div class="header-actions">
+                    <select id="rec-demo-scenario" class="form-control rec-scenario" hidden onchange="setDemoScenario(this.value)"
+                        title="Modo DEMO: simular uma situação"></select>
+                    <button class="btn-primary btn-muted" onclick="loadRecovery(true)">
+                        <i class="fas fa-stethoscope"></i> Analisar agora
+                    </button>
+                    <button id="rec-assist-btn" class="btn-primary btn-success dba-only" onclick="openRecommendedPlan()" disabled>
+                        <i class="fas fa-wand-magic-sparkles"></i> Recuperação guiada
+                    </button>
+                </div>
+            </header>
+
+            <div id="rec-status" class="rec-status">
+                <div class="empty-state"><i class="fas fa-spinner fa-spin"></i> Analisando o banco...</div>
+            </div>
+
+            <div class="main-grid">
+                <div class="card col-8">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-triangle-exclamation"></i> Problemas encontrados</h3>
+                        <span id="rec-findings-count" class="card-subtitle"></span>
+                    </div>
+                    <div id="rec-findings" class="rec-findings"></div>
+                </div>
+                <div class="card col-4">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-shield-heart"></i> Prontidão para recuperação</h3>
+                        <span id="rec-score" class="rec-score"></span>
+                    </div>
+                    <div id="rec-readiness" class="rec-readiness"></div>
+                </div>
+            </div>
+
+            <div class="main-grid rec-lower">
+                <div class="card col-12">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-magnifying-glass"></i> Consultar um erro</h3>
+                        <span class="card-subtitle">Cole a mensagem completa (ORA-, RMAN-, TNS-) ou um comando</span>
+                    </div>
+                    <div class="rec-lookup">
+                        <textarea id="rec-lookup-input" class="form-control" rows="3" spellcheck="false"
+                            placeholder="Ex.: ORA-00600: internal error code, arguments: [kcratr_scan_lastbwr], [], [], []"></textarea>
+                        <div class="rec-lookup-actions">
+                            <div class="rec-chips" id="rec-lookup-chips"></div>
+                            <button class="btn-primary" onclick="runErrorLookup()"><i class="fas fa-magnifying-glass"></i> Analisar erro</button>
+                        </div>
+                        <div id="rec-lookup-result"></div>
+                    </div>
+                </div>
+
+                <div class="card col-12">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-book-medical"></i> Procedimentos de recuperação</h3>
+                        <input id="rec-pb-filter" class="form-control rec-filter" type="search" placeholder="Filtrar por nome ou erro (ex.: ORA-01578)"
+                            oninput="renderPlaybookLibrary()">
+                    </div>
+                    <div id="rec-playbooks" class="rec-playbooks"></div>
+                </div>
+
+                <div class="card col-12">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-file-waveform"></i> Alert log</h3>
+                        <div class="rec-alert-tools">
+                            <select id="rec-alert-filter" class="form-control" onchange="renderAlertLog()">
+                                <option value="all">Erros e eventos</option>
+                                <option value="errors">Só erros</option>
+                                <option value="events">Só eventos (abertura, queda, recuperação)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="rec-alert-source" class="form-hint rec-alert-source"></div>
+                    <div class="table-container rec-alert-scroll">
+                        <table class="rec-alert-table">
+                            <thead><tr><th>Data/Hora</th><th>Tipo</th><th>Mensagem</th></tr></thead>
+                            <tbody id="rec-alert-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card col-12 dba-only">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-clock-rotate-left"></i> Execuções de recuperação</h3>
+                        <span class="card-subtitle">Disparadas por este painel (também na auditoria)</span>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead><tr><th>Início</th><th>Procedimento</th><th>Usuário</th><th>Resultado</th><th class="col-action">Log</th></tr></thead>
+                            <tbody id="rec-jobs-body"></tbody>
                         </table>
                     </div>
                 </div>
@@ -776,6 +899,94 @@
 
             <div id="sql-results"></div>
         </section>
+
+        <!-- Terminal do servidor (DBA): SO / sqlplus / RMAN -->
+        <section id="terminal" class="page-section dba-only">
+            <header>
+                <div class="header-title">
+                    <h1>Terminal do Servidor</h1>
+                    <p>Comandos de SO, <code>sqlplus</code> (AS SYSDBA) e <code>RMAN</code> no servidor do banco</p>
+                </div>
+                <button class="btn-primary btn-muted" onclick="clearTerminal()"><i class="fas fa-eraser"></i> Limpar</button>
+            </header>
+
+            <div class="card col-12">
+                <div class="card-body term-card">
+                    <div class="term-modes" id="term-modes">
+                        <button type="button" class="term-mode is-active" data-mode="os"><i class="fas fa-server"></i> Sistema Operacional</button>
+                        <button type="button" class="term-mode" data-mode="sqlplus"><i class="fas fa-database"></i> SQL*Plus (SYSDBA)</button>
+                        <button type="button" class="term-mode" data-mode="rman"><i class="fas fa-shield-halved"></i> RMAN</button>
+                    </div>
+
+                    <div class="storage-warnings term-warn">
+                        <i class="fas fa-triangle-exclamation"></i>
+                        <span id="term-hint">Os comandos rodam <strong>de verdade</strong> no servidor do banco e ficam registrados na <strong>auditoria</strong>. A senha do SYS é mascarada na saída.</span>
+                    </div>
+
+                    <div class="term-where" id="term-where"></div>
+
+                    <textarea id="term-input" class="term-input mono" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+
+                    <div class="term-foot">
+                        <small><i class="fas fa-keyboard"></i> <strong>Ctrl+Enter</strong> executa · um comando por vez (pode ter várias linhas)</small>
+                        <div class="term-actions">
+                            <label class="term-timeout"><i class="fas fa-clock"></i> Tempo-limite
+                                <select id="term-timeout">
+                                    <option value="30000">30 s</option>
+                                    <option value="120000" selected>2 min</option>
+                                    <option value="300000">5 min</option>
+                                    <option value="600000">10 min</option>
+                                </select>
+                            </label>
+                            <button class="btn-primary btn-success" id="term-run-btn" onclick="runTerminal()"><i class="fas fa-play"></i> Executar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="term-output" class="term-output" hidden></div>
+        </section>
+
+        <!-- Sobre + atualização -->
+        <section id="about" class="page-section">
+            <header>
+                <div class="header-title">
+                    <h1>Sobre o Oracle Pulse</h1>
+                    <p>Versão, informações do sistema e atualização online</p>
+                </div>
+            </header>
+
+            <div class="main-grid">
+                <div class="card col-8">
+                    <div class="about-head">
+                        <img src="logo.png" alt="Oracle Pulse" class="about-logo" onerror="this.style.display='none'">
+                        <div>
+                            <h2 class="about-name">Oracle Pulse <span id="about-version" class="about-ver">—</span></h2>
+                            <p class="about-sub">Painel de monitoramento e administração de banco de dados Oracle</p>
+                        </div>
+                    </div>
+                    <dl class="about-grid" id="about-grid"></dl>
+                </div>
+
+                <div class="card col-4" id="about-update-card">
+                    <div class="card-header"><h3 class="card-title"><i class="fas fa-cloud-arrow-down"></i> Atualização</h3></div>
+                    <div id="about-update-status" class="about-update-status">
+                        <button class="btn-primary" id="about-check-btn" onclick="checkUpdate(true)"><i class="fas fa-rotate"></i> Verificar atualização</button>
+                        <p class="form-hint">Consulta o repositório no GitHub e informa se há uma versão mais nova.</p>
+                    </div>
+                    <div id="about-update-action"></div>
+                </div>
+            </div>
+
+            <div class="card col-12">
+                <div class="card-header"><h3 class="card-title"><i class="fas fa-shield-halved"></i> Segurança &amp; privacidade</h3></div>
+                <ul class="about-notes">
+                    <li>Acesso por perfis <strong>DBA</strong> (total) e <strong>Visualizador</strong> (somente leitura); ações sensíveis ficam na <strong>auditoria</strong>.</li>
+                    <li>A senha do SYS e as credenciais ficam só no <code>.env</code> do servidor; o painel nunca as grava em comandos nem na tela.</li>
+                    <li>Recomendado publicar atrás de um proxy reverso com <strong>HTTPS</strong>.</li>
+                </ul>
+            </div>
+        </section>
     </div>
 
     <div id="sqlModal" class="modal">
@@ -801,7 +1012,26 @@
         </div>
     </div>
 
+    <!-- Modal genérico (sincronização NTP, planos e execuções de recuperação) -->
+    <div id="opModal" class="modal op-modal" role="dialog" aria-modal="true" aria-labelledby="opModalTitle">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h2 id="opModalTitle"></h2>
+                    <p id="opModalSubtitle" class="modal-subtitle"></p>
+                </div>
+                <span class="close-modal" onclick="closeOpModal()" aria-label="Fechar">&times;</span>
+            </div>
+            <div id="opModalBody" class="modal-body op-body"></div>
+            <div id="opModalFooter" class="modal-footer op-footer"></div>
+        </div>
+    </div>
+
     <script src="main.js"></script>
+    <script src="recovery.js"></script>
+    <script src="protection.js"></script>
+    <script src="terminal.js"></script>
+    <script src="about.js"></script>
 </body>
 
 </html>

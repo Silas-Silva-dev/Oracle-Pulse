@@ -11,9 +11,11 @@ const express = require('express');
 const { config } = require('../config');
 const { runQuery, executeAdmin, ValidationError, assertPositiveInt } = require('../db');
 const logger = require('../logger');
-const { getOsDisk } = require('../osDisk');
+const storage = require('../storage');
 const { requireDba } = require('../auth');
 const backupAdmin = require('../backupAdmin');
+const backupSchedule = require('../backupSchedule');
+const backupPreflight = require('../backupPreflight');
 const audit = require('../audit');
 const cache = require('../cache');
 
@@ -161,15 +163,31 @@ router.post('/backup/config/retention', requireDba, async (req, res) => {
 });
 
 /**
+ * Volume onde a FRA fica (ou ficará): destino atual (db_recovery_file_dest),
+ * senão DB_FRA_DEST do .env, senão o diretório do SYSTEM (onde costuma estar o
+ * ORACLE_BASE, base do caminho automático da FRA).
+ */
+async function fraDisk() {
+    const dest = await currentFraDest();
+    const target = dest || config.oracleServer.fraDest;
+    if (target) return storage.getDiskForPath(target);
+    const { layout } = await storage.getLayout();
+    const system = layout.tablespaces.find((t) => t.name === 'SYSTEM');
+    return storage.getDiskForPath(system ? system.currentDir : layout.currentDir);
+}
+
+/**
  * Sugere um tamanho de FRA suficiente, porém enxuto:
- * baseado na geração de redo/dia × retenção × margem, com teto pelo disco livre.
+ * archives (redo/dia × retenção × margem) + os backups do agendamento quando o
+ * destino deles é a própria FRA, com teto pelo espaço que a FRA pode ocupar no disco.
  */
 async function computeFraRecommendation() {
-    const [redo, rmanRows, sizeRow, disk] = await Promise.all([
+    const [redo, rmanRows, sizeRow, disk, fraRows] = await Promise.all([
         runQuery('redoStats'),
         runQuery('rmanConfig'),
         runQuery('dbSize'),
-        getOsDisk().catch(() => null),
+        fraDisk().catch(() => null),
+        runQuery('fraUsage').catch(() => []),
     ]);
 
     const r0 = redo[0] || {};
@@ -185,13 +203,18 @@ async function computeFraRecommendation() {
     const archiveSpaceGb = redoPerDayGb * retentionDays * 1.5;
     const buffer = 2;
     const floor = Math.max(redoPerDayGb * 2, 5); // nunca recomenda algo minúsculo
-    let recommendedGb = Math.ceil(Math.max(archiveSpaceGb + buffer, floor));
+    // Backups agendados com destino na FRA ficam dentro dela (pico: nova cópia + as retidas).
+    const schedule = backupSchedule.loadSettings().schedule;
+    const backups = backupPreflight.fraBackupsAllowance(schedule, ret, dbSizeGb, redoPerDayGb);
+    let recommendedGb = Math.ceil(Math.max(archiveSpaceGb + buffer + backups.gb, floor));
 
-    // Teto: não passar de 75% do disco livre do volume (evita lotar o disco).
+    // Teto: 75% do que a FRA pode ocupar no volume (o livre + o que ela já usa).
     const freeDiskGb = disk && !disk.error ? Number(disk.freeGB) : null;
+    const fra = fraRows[0] || {};
+    const fraUsedGb = Number(fra.USED_MB ?? fra.used_mb ?? 0) / 1024 || 0;
     let cappedByDisk = false;
     if (freeDiskGb && freeDiskGb > 0) {
-        const cap = Math.floor(freeDiskGb * 0.75);
+        const cap = Math.floor((freeDiskGb + fraUsedGb) * 0.75);
         if (recommendedGb > cap) { recommendedGb = cap; cappedByDisk = true; }
     }
 
@@ -202,9 +225,13 @@ async function computeFraRecommendation() {
             retentionDays,
             dbSizeGb,
             freeDiskGb,
+            fraUsedGb: Math.round(fraUsedGb * 10) / 10,
             cappedByDisk,
-            // Se os backups RMAN forem para a FRA, some ~1 full comprimido:
-            backupAllowanceGb: Math.ceil(dbSizeGb * 0.6),
+            archiveSpaceGb: Math.ceil(archiveSpaceGb + buffer),
+            backupsToFra: schedule.destination === 'fra',
+            backupsGb: Math.ceil(backups.gb),
+            backupsText: backups.text,
+            strategy: schedule.strategy,
         },
     };
 }

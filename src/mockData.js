@@ -3,22 +3,54 @@
  * Estrutura espelha exatamente o retorno das queries reais para que o
  * frontend funcione sem um banco Oracle conectado.
  */
+/** Datafiles simulados (mesmo formato da query datafilesList). */
+function demoDatafiles() {
+    const U1 = '/u01/oracle/oradata/ORCL/';
+    const U2 = '/u02/oracle/oradata/ORCL/';
+    const U3 = '/u03/oracle/oradata/ORCL/';
+    const rows = [];
+    let id = 0;
+    let change = 1000;
+    const add = (ts, dir, name, size) => {
+        id += 1;
+        change += 5000;
+        rows.push({ TABLESPACE_NAME: ts, FILE_NAME: dir + name, FILE_ID: id, SIZE_MB: size, AUTOEXTENSIBLE: 'YES', MAX_SIZE_MB: 32767, CREATION_CHANGE: change });
+    };
+    add('SYSTEM', U1, 'system01.dbf', 1024);
+    add('SYSAUX', U1, 'sysaux01.dbf', 2048);
+    add('UNDOTBS1', U1, 'undotbs01.dbf', 4096);
+    add('USERS', U1, 'users01.dbf', 5000);
+    for (let i = 1; i <= 15; i++) {
+        if (i === 7) add('INDICES', U2, 'indices01.dbf', 32767);
+        if (i === 13) add('INDICES', U2, 'indices02.dbf', 20480);
+        add('DADOS', i <= 6 ? U1 : i <= 12 ? U2 : U3, `dados${String(i).padStart(2, '0')}.dbf`, 32767);
+    }
+    return rows.sort((a, b) => a.TABLESPACE_NAME.localeCompare(b.TABLESPACE_NAME) || a.FILE_ID - b.FILE_ID);
+}
+
+const demoClock = require('./demoClock');
+
 module.exports = {
-    instanceStatus: [{
-        INSTANCE_NAME: 'ORCL_DEMO', HOST_NAME: 'localhost', VERSION: '19.3.0.0.0',
-        STATUS: 'OPEN', STARTUP_TIME: '01/01/2026 08:00:00',
-        CURRENT_TIME: new Date().toLocaleString('pt-BR'), UPTIME_MINUTES: 1440,
-    }],
+    // Getter: a hora do "servidor" anda (e reflete a sincronização NTP simulada).
+    get instanceStatus() {
+        return [{
+            INSTANCE_NAME: 'ORCL_DEMO', HOST_NAME: 'localhost', VERSION: '19.3.0.0.0',
+            STATUS: 'OPEN', STARTUP_TIME: '01/01/2026 08:00:00',
+            CURRENT_TIME: demoClock.formatted(), UPTIME_MINUTES: 1440,
+        }];
+    },
     sessionSummary: [{ STATUS: 'ACTIVE', COUNT: 12 }, { STATUS: 'INACTIVE', COUNT: 45 }],
     // Inclui MAX_MB (faltava antes e quebrava a tela de Storage em DEMO)
     tablespaceUsage: [
+        { TABLESPACE_NAME: 'DADOS', TOTAL_MB: 491505, FREE_MB: 11505, USED_MB: 480000, USED_PCT: 97.66, MAX_MB: 491505 },
         { TABLESPACE_NAME: 'SYSTEM', TOTAL_MB: 1024, FREE_MB: 154, USED_MB: 870, USED_PCT: 85, MAX_MB: 2048 },
+        { TABLESPACE_NAME: 'INDICES', TOTAL_MB: 53247, FREE_MB: 9247, USED_MB: 44000, USED_PCT: 82.63, MAX_MB: 65534 },
+        { TABLESPACE_NAME: 'SYSAUX', TOTAL_MB: 2048, FREE_MB: 610, USED_MB: 1438, USED_PCT: 70.21, MAX_MB: 32767 },
         { TABLESPACE_NAME: 'USERS', TOTAL_MB: 5000, FREE_MB: 3200, USED_MB: 1800, USED_PCT: 36, MAX_MB: 32768 },
-        { TABLESPACE_NAME: 'DADOS', TOTAL_MB: 20000, FREE_MB: 1500, USED_MB: 18500, USED_PCT: 92.5, MAX_MB: 32768 },
     ],
     topSql: [
-        { SQL_ID: '7w1m6z9y', CPU_SECONDS: 15.4, ELAPSED_SECONDS: 22.1, EXECUTIONS: 1200, SQL_SNIPPET: 'SELECT * FROM HR.EMPLOYEES WHERE dept_id = :1' },
-        { SQL_ID: '3a2b1c0d', CPU_SECONDS: 8.2, ELAPSED_SECONDS: 12.7, EXECUTIONS: 540, SQL_SNIPPET: 'UPDATE FINANCEIRO SET status = :1 WHERE id = :2' },
+        { SQL_ID: '7w1m6z9y', CPU_SECONDS: 15.4, ELAPSED_SECONDS: 22.1, EXECUTIONS: 1200, SQL_SNIPPET: 'SELECT * FROM HR.EMPLOYEES WHERE dept_id = :1', PULSE_CPU_SECONDS: 0.9, TOTAL_CPU_SECONDS: 412.6 },
+        { SQL_ID: '3a2b1c0d', CPU_SECONDS: 8.2, ELAPSED_SECONDS: 12.7, EXECUTIONS: 540, SQL_SNIPPET: 'UPDATE FINANCEIRO SET status = :1 WHERE id = :2', PULSE_CPU_SECONDS: 0.9, TOTAL_CPU_SECONDS: 412.6 },
     ],
     topSqlByElapsed: [
         { SQL_ID: '7w1m6z9y', ELAPSED_SECONDS: 22.1, CPU_SECONDS: 15.4, EXECUTIONS: 1200, BUFFER_GETS: 98000, SQL_SNIPPET: 'SELECT * FROM HR.EMPLOYEES WHERE dept_id = :1' },
@@ -50,11 +82,15 @@ module.exports = {
     longRunningSessions: [
         { SID: 88, SERIAL: 1122, USERNAME: 'APP', PROGRAM: 'app.exe', STATUS: 'ACTIVE', SQL_ID: '7w1m6z9y', SECONDS_RUNNING: 320, EVENT: 'db file sequential read' },
     ],
-    datafilesList: [
-        { TABLESPACE_NAME: 'DADOS', FILE_NAME: 'D:\\ORACLE\\ORADATA\\DADOS01.DBF', SIZE_MB: 20000, AUTOEXTENSIBLE: 'YES', MAX_SIZE_MB: 32768 },
-        { TABLESPACE_NAME: 'USERS', FILE_NAME: 'D:\\ORACLE\\ORADATA\\USERS01.DBF', SIZE_MB: 5000, AUTOEXTENSIBLE: 'YES', MAX_SIZE_MB: 32768 },
+    // Banco que cresceu para outros discos: DADOS começou em /u01, passou por /u02
+    // e o arquivo mais recente está em /u03 (destino atual de um novo datafile).
+    datafilesList: demoDatafiles(),
+    datafilesListBasic: demoDatafiles().map(({ CREATION_CHANGE, ...rest }) => rest),
+    tempfilesList: [
+        { TABLESPACE_NAME: 'TEMP', FILE_NAME: '/u01/oracle/oradata/ORCL/temp01.dbf', SIZE_MB: 8192 },
     ],
-    defaultDataPath: [{ PATH: 'D:\\ORACLE\\ORADATA\\' }],
+    asmDiskgroups: [],
+    defaultDataPath: [{ PATH: '/u03/oracle/oradata/ORCL/' }],
     fullSqlText: [{ SQL_FULLTEXT: 'SELECT * FROM HR.EMPLOYEES WHERE dept_id = :1 ORDER BY hire_date' }],
     sqlPlan: [
         { PLAN_TABLE_OUTPUT: 'Plan hash value: 1234567890' },
@@ -79,9 +115,11 @@ module.exports = {
         { OUTPUT: 'Finished backup at 16/06/2026 02:38' },
         { OUTPUT: '[DEMO] Log simulado do v$rman_output.' },
     ],
-    fraUsage: [{ NAME: 'D:\\ORACLE\\FRA', LIMIT_MB: 50000, USED_MB: 32000, USED_PCT: 58.2 }],
+    lastDbBackupEnd: [{ END_ISO: null }],
+    // Getter: reflete as ações simuladas do guardião da FRA (src/demoFra.js).
+    get fraUsage() { return require('./demoFra').rows(); },
     recoveryParams: [
-        { NAME: 'db_recovery_file_dest', VALUE: 'D:\\ORACLE\\FRA' },
+        { NAME: 'db_recovery_file_dest', VALUE: '/u01/app/oracle/fast_recovery_area' },
         { NAME: 'db_recovery_file_dest_size', VALUE: '52428800000' },
     ],
     redoStats: [{ REDO_BYTES: 8000000000, UPTIME_SEC: 86400 }], // ~8 GB/dia
@@ -120,3 +158,6 @@ module.exports = {
     ],
     memoryAdvice: [],
 };
+
+// Função (não é query): usada pelos cenários simulados da tela Recuperação.
+Object.defineProperty(module.exports, 'demoDatafiles', { value: demoDatafiles, enumerable: false });

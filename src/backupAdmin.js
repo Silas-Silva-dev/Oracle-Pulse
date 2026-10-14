@@ -52,8 +52,14 @@ function scrubSecrets(text) {
     return t;
 }
 
-/** "@alias" quando DB_TNS_ALIAS está definido; senão "" (conexão local). */
-function connectAlias() {
+/**
+ * "@alias" SOMENTE no Windows. No Windows a conexão local/BEQ costuma ser recusada
+ * (ORA-12546), por isso o painel conecta pelo listener via DB_TNS_ALIAS. No Linux a
+ * conexão é LOCAL (ORACLE_SID), rodando como o dono do Oracle (oracle): usar o alias
+ * ali gera ORA-12154 — o alias do Windows não existe no tnsnames do servidor Linux.
+ */
+function connectAlias(serverOs) {
+    if (serverOs !== 'windows') return '';
     return config.oracleServer.tnsAlias ? '@' + safeIdent(config.oracleServer.tnsAlias, 'DB_TNS_ALIAS') : '';
 }
 
@@ -68,9 +74,9 @@ function adminUser() {
  *  - Sem senha: "rman target /" (autenticação por SO), sem linha CONNECT.
  * @returns {{ args: string, connectLine: string|null }}
  */
-function rmanInvocation() {
+function rmanInvocation(serverOs) {
     if (!config.oracleServer.usesPasswordAuth) return { args: 'target /', connectLine: null };
-    return { args: '', connectLine: `CONNECT TARGET ${adminUser()}/${config.oracleServer.sysPassword}${connectAlias()};` };
+    return { args: '', connectLine: `CONNECT TARGET ${adminUser()}/${config.oracleServer.sysPassword}${connectAlias(serverOs)};` };
 }
 
 /**
@@ -87,9 +93,9 @@ function rmanInvocation() {
  * STARTUP (no Windows, com o OracleService<SID> no ar, o STARTUP MOUNT funciona).
  * @returns {{ args: string, connectLine: string|null }}
  */
-function sqlplusInvocation() {
+function sqlplusInvocation(serverOs) {
     if (!config.oracleServer.usesPasswordAuth) return { args: '-S / AS SYSDBA', connectLine: null };
-    return { args: '-S /nolog', connectLine: `CONNECT ${adminUser()}/${config.oracleServer.sysPassword}${connectAlias()} AS SYSDBA` };
+    return { args: '-S /nolog', connectLine: `CONNECT ${adminUser()}/${config.oracleServer.sysPassword}${connectAlias(serverOs)} AS SYSDBA` };
 }
 
 /**
@@ -153,7 +159,7 @@ function buildServerCommand(bin, args, serverOs) {
 
 /** Monta { command, env, stdin } para um script RMAN. */
 function buildRmanRun(rmanLines, serverOs) {
-    const { args, connectLine } = rmanInvocation();
+    const { args, connectLine } = rmanInvocation(serverOs);
     const { command, env } = buildServerCommand('rman', args, serverOs);
     const lines = [];
     if (connectLine) lines.push(connectLine);
@@ -168,7 +174,7 @@ function buildArchivelogRun(enable, serverOs) {
     // usamos conexão local/BEQ: o Windows do cliente a recusa com ORA-12546. A
     // sessão SYSDBA sobrevive ao SHUTDOWN dentro do próprio script para o STARTUP.
     // No Linux (DB_TNS_ALIAS vazio) isto continua sendo conexão local, como antes.
-    const { args, connectLine } = sqlplusInvocation();
+    const { args, connectLine } = sqlplusInvocation(serverOs);
     const { command, env } = buildServerCommand('sqlplus', args, serverOs);
     const lines = ['WHENEVER SQLERROR EXIT FAILURE'];
     if (connectLine) lines.push(connectLine);
@@ -313,6 +319,20 @@ function connectPermissionHint(output) {
         'Se funciona no CMD mas falha aqui, verifique no sqlnet.ora do servidor se há',
         'tcp.validnode_checking=yes com INVITED_NODES limitando os IPs que podem conectar.',
     ].join('\n');
+}
+
+/**
+ * RMAN para tarefas automáticas (agendador/guardião): sucesso pelo código de
+ * saída e pelos erros, mas RMAN-08xxx são só avisos (ex.: RMAN-08120 "archived
+ * log not deleted") e não reprovam a execução.
+ */
+async function runRmanGuarded(rmanLines, opts = {}) {
+    const serverOs = opts.serverOs || await detectServerOs();
+    const { command, stdin, env } = buildRmanRun(rmanLines, serverOs);
+    const result = await execOnServer(command, { stdin, env, timeoutMs: opts.timeoutMs });
+    const output = scrubSecrets(`${result.stdout}\n${result.stderr}`).trim();
+    const errors = (output.match(/\b(?:RMAN|ORA)-\d{4,5}\b/g) || []).filter((c) => !/^RMAN-08\d{3}$/.test(c));
+    return { ok: result.code === 0 && errors.length === 0, code: result.code, errors: [...new Set(errors)], output };
 }
 
 /** Executa um script RMAN em primeiro plano (ops rápidas: CONFIGURE). */
@@ -672,6 +692,8 @@ module.exports = {
     listJobs,
     resolveFraPath,
     createServerDir,
+    runRman,
+    runRmanGuarded,
     // Helpers expostos para teste/diagnóstico (não usam rede):
     buildServerCommand,
     buildRmanRun,

@@ -8,6 +8,8 @@ const logger = require('./logger');
 
 let activeAlerts = []; // [{ id, severity, message, value, since }]
 let lastFingerprint = new Set();
+// Alertas de outros módulos (guardião da FRA, backups agendados), com validade opcional.
+const external = new Map(); // id -> { alert, expiresAt }
 
 function severityFor(pct, limit) {
     if (pct >= limit + 5) return 'critical';
@@ -16,7 +18,7 @@ function severityFor(pct, limit) {
 
 /**
  * Avalia o estado atual e devolve a lista de alertas ativos.
- * @param {object} metrics { tablespaces:[], disk:{usedPct}, memoryPct, blockedSessions }
+ * @param {object} metrics { tablespaces:[], disks:[{mount, usedPct, freeGB}], osMemory, fra, blockedSessions }
  */
 function evaluate(metrics) {
     const alerts = [];
@@ -33,14 +35,17 @@ function evaluate(metrics) {
         }
     });
 
-    if (metrics.disk && typeof metrics.disk.usedPct === 'number' && metrics.disk.usedPct >= config.alerts.diskPct) {
+    // Um alerta por volume (ponto de montagem, letra de unidade ou disk group ASM)
+    // que contém arquivos do banco: /u03 cheio alerta mesmo com /u01 folgado.
+    (metrics.disks || []).forEach((v) => {
+        if (typeof v.usedPct !== 'number' || v.usedPct < config.alerts.diskPct) return;
         alerts.push({
-            id: `disk:${metrics.disk.path || 'os'}`,
-            severity: severityFor(metrics.disk.usedPct, config.alerts.diskPct),
-            message: `Disco do servidor (${metrics.disk.path || ''}) em ${metrics.disk.usedPct}%`,
-            value: metrics.disk.usedPct,
+            id: `disk:${v.mount}`,
+            severity: severityFor(v.usedPct, config.alerts.diskPct),
+            message: `Volume ${v.mount} do servidor em ${v.usedPct}% (${v.freeGB} GB livres)`,
+            value: v.usedPct,
         });
-    }
+    });
 
     // Memória REAL do servidor (RAM física), não o ratio SGA/PGA do Oracle.
     const osMem = metrics.osMemory;
@@ -83,15 +88,48 @@ function evaluate(metrics) {
         });
     }
 
-    // Preserva o "since" de alertas que continuam ativos
-    const previous = new Map(activeAlerts.map((a) => [a.id, a]));
-    activeAlerts = alerts.map((a) => ({
-        ...a,
-        since: previous.get(a.id)?.since || new Date().toISOString(),
-    }));
+    metricAlerts = alerts;
+    return rebuild();
+}
 
+let metricAlerts = [];
+
+/** Junta alertas de métricas + externos, preservando o "since" dos que continuam. */
+function rebuild() {
+    const now = Date.now();
+    for (const [id, e] of external) if (e.expiresAt && e.expiresAt < now) external.delete(id);
+    const all = [...metricAlerts, ...[...external.values()].map((e) => e.alert)];
+    const previous = new Map(activeAlerts.map((a) => [a.id, a]));
+    activeAlerts = all.map((a) => ({
+        ...a,
+        since: previous.get(a.id)?.since || a.since || new Date().toISOString(),
+    }));
     notifyNew();
     return activeAlerts;
+}
+
+/**
+ * Publica (ou retira, com alert = null) um alerta de outro módulo.
+ * @param {string} id
+ * @param {{severity:string, message:string}|null} alert
+ * @param {number} [ttlMs] validade (alertas de "evento", ex.: guardião agiu)
+ */
+function setExternal(id, alert, ttlMs) {
+    if (!alert) {
+        if (!external.has(id)) return;
+        external.delete(id);
+    } else {
+        external.set(id, { alert: { ...alert, id }, expiresAt: ttlMs ? Date.now() + ttlMs : null });
+    }
+    rebuild();
+}
+
+/** Retira todos os alertas externos cujo id começa com o prefixo e não estão em `keep`. */
+function syncExternal(prefix, list) {
+    const keep = new Set(list.map((a) => a.id));
+    for (const id of [...external.keys()]) if (id.startsWith(prefix) && !keep.has(id)) external.delete(id);
+    for (const a of list) external.set(a.id, { alert: a, expiresAt: null });
+    rebuild();
 }
 
 /** Dispara webhook apenas para alertas que acabaram de aparecer. */
@@ -116,7 +154,9 @@ function notifyNew() {
 }
 
 function getActive() {
+    // Expira alertas de evento mesmo sem nova avaliação de métricas.
+    if ([...external.values()].some((e) => e.expiresAt && e.expiresAt < Date.now())) rebuild();
     return activeAlerts;
 }
 
-module.exports = { evaluate, getActive };
+module.exports = { evaluate, getActive, setExternal, syncExternal };

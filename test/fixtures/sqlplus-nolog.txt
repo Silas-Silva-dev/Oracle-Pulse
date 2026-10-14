@@ -1,0 +1,39 @@
+@@OP:S:instance
+SP2-0640: Not connected
+@@OP:S:version
+SP2-0640: Not connected
+@@OP:S:params
+SP2-0640: Not connected
+@@OP:S:diag
+SP2-0640: Not connected
+@@OP:S:database
+SP2-0640: Not connected
+@@OP:S:datafiles
+SP2-0640: Not connected
+@@OP:S:recover
+SP2-0640: Not connected
+@@OP:S:tempfiles
+SP2-0640: Not connected
+@@OP:S:logs
+SP2-0640: Not connected
+@@OP:S:controlfiles
+SP2-0640: Not connected
+@@OP:S:corruption
+SP2-0640: Not connected
+@@OP:S:archdest
+SP2-0640: Not connected
+@@OP:S:fra
+SP2-0640: Not connected
+@@OP:S:backupfiles
+SP2-0640: Not connected
+@@OP:S:backupsets
+SP2-0640: Not connected
+@@OP:S:rmanconf
+SP2-0640: Not connected
+@@OP:S:undosegs
+SP2-0640: Not connected
+@@OP:S:invalid
+SP2-0640: Not connected
+@@OP:S:defaulttemp
+SP2-0640: Not connected
+@@OP:END

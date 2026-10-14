@@ -97,8 +97,11 @@ function computeRecommendation({ params, pga, sga, mode, osMemory }) {
 
 router.get('/memory/advisor', async (req, res) => {
     try {
+        // "Atualizar Agora" (e após aplicar um ajuste): dados novos, sem o cache.
+        if (req.query.refresh === '1') ['osMemory', 'memoryParams', 'pgaAdvice', 'sgaAdvice', 'memoryAdvice'].forEach((k) => cache.invalidate(k));
         const [osMemory, paramRows, pga, sga, memory] = await Promise.all([
-            cache.cached('osMemory', 20000, getOsMemory),
+            // Falha ao ler a RAM do SO não pode derrubar a tela inteira (SGA/PGA vêm do banco).
+            cache.cached('osMemory', 20000, getOsMemory).catch((e) => ({ error: `Leitura da memória do servidor falhou: ${e.message}` })),
             cache.cached('memoryParams', 30000, () => runQuery('memoryParams')),
             cache.cached('pgaAdvice', 30000, () => runQuery('pgaAdvice')),
             cache.cached('sgaAdvice', 30000, () => runQuery('sgaAdvice')),

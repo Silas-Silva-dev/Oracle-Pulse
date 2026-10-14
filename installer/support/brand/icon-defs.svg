@@ -1,0 +1,77 @@
+<!--
+  Oracle Pulse - fonte vetorial do ícone (cilindro de banco + pulso).
+  Usado por make-brand-assets.ps1 para gerar o .ico, o favicon e as imagens
+  do instalador. Coordenadas em 0..256. Três níveis de detalhe:
+    #op-full    (40 px ou mais)   - desenho completo, com as faixas do cilindro
+    #op-compact (32 px)           - traços mais grossos, uma faixa
+    #op-tiny    (16 a 24 px)      - sem faixas, pulso simplificado e maior
+  O fundo arredondado (com borda alinhada ao pixel) é gerado pelo script para
+  cada tamanho, para os cantos ficarem lisos também em 16 px.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="op-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e6eef9"/>
+    </linearGradient>
+    <linearGradient id="op-cyl" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0b4f9e"/>
+      <stop offset=".45" stop-color="#1c74cf"/>
+      <stop offset="1" stop-color="#0a4690"/>
+    </linearGradient>
+    <linearGradient id="op-pulse" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ef6a10"/>
+      <stop offset="1" stop-color="#ff9418"/>
+    </linearGradient>
+
+
+    <!-- Cilindro com topo vazado (como no logo). -->
+    <g id="op-cylinder">
+      <path d="M56 78 V190 A62 20 0 0 0 180 190 V78 Z" fill="url(#op-cyl)"/>
+      <ellipse cx="118" cy="78" rx="62" ry="20" fill="#1565c0"/>
+      <ellipse cx="118" cy="78" rx="49" ry="12.5" fill="#ffffff"/>
+    </g>
+
+    <!-- Desenho completo -->
+    <g id="op-full">
+      <use href="#op-cylinder"/>
+      <path d="M56 116 A62 20 0 0 0 180 116" fill="none" stroke="#ffffff" stroke-width="7"/>
+      <path d="M56 153 A62 20 0 0 0 180 153" fill="none" stroke="#ffffff" stroke-width="7"/>
+      <g stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M48 166 H92 L104 138 L117 183 L137 87 L149 193 L161 158 Q168 136 186 129 L196 126" fill="none" stroke-width="22"/>
+        <path d="M218 122 L194 108 L196 141 Z" fill="#ffffff" stroke-width="12"/>
+      </g>
+      <g stroke-linecap="round" stroke-linejoin="round">
+        <path d="M48 166 H92 L104 138 L117 183 L137 87 L149 193 L161 158 Q168 136 186 129 L198 126" fill="none" stroke="url(#op-pulse)" stroke-width="11"/>
+        <path d="M218 122 L194 108 L196 141 Z" fill="#ff9418" stroke="#ff9418" stroke-width="2"/>
+      </g>
+    </g>
+
+    <!-- 24 a 32 px -->
+    <g id="op-compact">
+      <use href="#op-cylinder"/>
+      <path d="M56 134 A62 20 0 0 0 180 134" fill="none" stroke="#ffffff" stroke-width="10"/>
+      <g stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M44 166 H90 L106 136 L120 184 L138 84 L154 190 L168 146 Q176 132 192 128" fill="none" stroke="#ffffff" stroke-width="30"/>
+        <path d="M222 124 L192 106 L194 146 Z" fill="#ffffff" stroke-width="14"/>
+      </g>
+      <g stroke-linecap="round" stroke-linejoin="round">
+        <path d="M44 166 H90 L106 136 L120 184 L138 84 L154 190 L168 146 Q176 132 194 128" fill="none" stroke="url(#op-pulse)" stroke-width="16"/>
+        <path d="M222 124 L192 106 L194 146 Z" fill="#ff9418" stroke="#ff9418" stroke-width="3"/>
+      </g>
+    </g>
+
+    <!-- 16 a 24 px (cores chapadas, poucos elementos) -->
+    <g id="op-tiny">
+      <path d="M50 70 V190 A68 22 0 0 0 186 190 V70 Z" fill="#1565c0"/>
+      <ellipse cx="118" cy="70" rx="68" ry="22" fill="#4f9be6"/>
+      <ellipse cx="118" cy="70" rx="42" ry="10" fill="#ffffff"/>
+      <g stroke-linecap="round" stroke-linejoin="round">
+        <path d="M30 170 H88 L116 96 L146 206 L170 150 H200" fill="none" stroke="#ffffff" stroke-width="46"/>
+        <path d="M238 150 L198 122 L198 178 Z" fill="#ffffff" stroke="#ffffff" stroke-width="20"/>
+        <path d="M30 170 H88 L116 96 L146 206 L170 150 H200" fill="none" stroke="#ff8a12" stroke-width="28"/>
+        <path d="M238 150 L198 122 L198 178 Z" fill="#ff8a12" stroke="#ff8a12" stroke-width="6"/>
+      </g>
+    </g>
+  </defs>
+</svg>

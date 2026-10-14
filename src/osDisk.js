@@ -13,50 +13,14 @@
  */
 const os = require('os');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { spawn } = require('child_process');
 const { config } = require('./config');
 const { runQuery } = require('./db');
 const logger = require('./logger');
-
-const GB = 1024 ** 3;
-const KB_TO_GB = 1024 ** 2; // valores de df vêm em KB
+const sp = require('./storagePaths');
 
 /** Escapa um argumento para shell POSIX (sh). */
 const shellEscape = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
-
-/** Parseia a saída de `df -kP` e escolhe o mount point mais específico. */
-function parseDf(stdout, dbPath) {
-    const lines = stdout.split('\n').filter((l) => l.trim().length > 0);
-    let best = null;
-    let maxLen = -1;
-    for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].trim().split(/\s+/);
-        if (parts.length >= 6) {
-            const mount = parts[5];
-            // Match por fronteira de segmento: '/u01' não deve casar com '/u01data',
-            // e '/' (raiz) casa qualquer caminho.
-            const isMatch =
-                dbPath === mount ||
-                mount === '/' ||
-                dbPath.startsWith(mount.endsWith('/') ? mount : mount + '/');
-            if (isMatch && mount.length > maxLen) {
-                maxLen = mount.length;
-                best = parts;
-            }
-        }
-    }
-    if (!best) return null;
-
-    const totalKb = parseInt(best[1], 10);
-    const freeKb = parseInt(best[3], 10);
-    if (!Number.isFinite(totalKb) || !Number.isFinite(freeKb)) return null;
-
-    return {
-        totalGB: Math.round(totalKb / KB_TO_GB),
-        freeGB: Math.round(freeKb / KB_TO_GB),
-        path: best[5] || dbPath,
-    };
-}
 
 /**
  * Codifica um script PowerShell em -EncodedCommand (base64 UTF-16LE).
@@ -94,31 +58,25 @@ function cleanPsClixml(text) {
     return cleaned || s.replace(/#<\s*CLIXML[\s\S]*$/i, '').trim();
 }
 
-/** Letra de drive (ex.: "D:") de um caminho Windows, ou null se for UNC/ASM. */
-function driveLetter(dbPath) {
-    const d = String(dbPath).substring(0, 2);
-    return /^[A-Za-z]:$/.test(d) ? d : null;
+/**
+ * Comando PowerShell que lista os volumes do Windows (JSON Name/Capacity/
+ * FreeSpace). Win32_Volume cobre letras de unidade (D:\) e também volumes
+ * montados em pasta (D:\oradata\disco2\); se não houver acesso a ele, cai para
+ * Win32_LogicalDisk (só letras).
+ */
+function winVolumesCommand() {
+    return psEncoded([
+        "$ProgressPreference='SilentlyContinue'",
+        "$v=@(Get-CimInstance Win32_Volume -ErrorAction SilentlyContinue | Where-Object { $_.Name -and $_.Capacity } | Select-Object Name,Capacity,FreeSpace)",
+        "if ($v.Count -eq 0) { $v=@(Get-CimInstance Win32_LogicalDisk | Where-Object { $_.Size } | Select-Object @{n='Name';e={$_.DeviceID+'\\'}},@{n='Capacity';e={$_.Size}},FreeSpace) }",
+        'ConvertTo-Json -InputObject $v -Compress',
+    ].join(';'));
 }
 
-/** Monta o comando PowerShell para ler um drive do Windows (saída JSON). */
-function winDiskCommand(drive) {
-    const id = drive.replace(/'/g, ''); // ex.: "D:"
-    return psEncoded(
-        "$ProgressPreference='SilentlyContinue';" +
-        `Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='${id}'" | Select-Object FreeSpace,Size | ConvertTo-Json -Compress`,
-    );
-}
-
-function parseWinJson(stdout) {
-    try {
-        const obj = JSON.parse(stdout.trim());
-        const free = Number(obj.FreeSpace);
-        const total = Number(obj.Size);
-        if (!Number.isFinite(free) || !Number.isFinite(total) || total === 0) return null;
-        return { freeGB: Math.round(free / GB), totalGB: Math.round(total / GB) };
-    } catch {
-        return null;
-    }
+/** Comando sh que roda `df -kP` em cada diretório, marcando o início de cada bloco. */
+function dfByDirCommand(dirs) {
+    const list = dirs.map(shellEscape).join(' ');
+    return `for p in ${list}; do echo "@@OPDF@@$p"; LC_ALL=C df -kP "$p" 2>/dev/null | tail -n +2; done`;
 }
 
 // ==========================================================================
@@ -223,6 +181,8 @@ async function connectSsh() {
         username: config.ssh.user,
         port: config.ssh.port,
         readyTimeout: 20000, // falha rápido em vez de pendurar
+        keepaliveInterval: 20000, // detecta conexão morta (a compartilhada fica aberta)
+        keepaliveCountMax: 3,
     };
 
     // Captura linhas de debug do ssh2 relevantes para autenticação (sempre,
@@ -291,11 +251,34 @@ async function connectSsh() {
  * sem nunca expor a senha. Mostra usuário, método, métodos oferecidos pelo
  * servidor e os prompts recebidos — o suficiente para identificar a causa.
  */
+/** Falha de rede (porta fechada, sem resposta, host inexistente): nem chegou a autenticar. */
+function isSshNetworkError(err) {
+    const raw = (err && err.message) || '';
+    return err?.level === 'client-socket' || err?.level === 'client-timeout' ||
+        /ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|getaddrinfo|Timed out while waiting for handshake/i.test(raw);
+}
+
+const SSH_WINDOWS_HINT = 'Se o servidor do banco é Windows: ative o OpenSSH Server nele (porta 22 liberada no firewall) ' +
+    'ou instale o Oracle Pulse no próprio servidor do banco, que lê disco e memória sem SSH.';
+
 function logSshDiagnostics(err) {
     const d = err.diag || {};
-    logger.error('========== DIAGNÓSTICO SSH (leitura de disco) ==========');
+    logger.error('========== DIAGNÓSTICO SSH ==========');
     logger.error(`Erro: ${err.message}${err.level ? ` (level=${err.level})` : ''}`);
     logger.error(`Host: ${config.ssh.host}:${config.ssh.port}  |  Usuário: "${d.username}"`);
+    if (isSshNetworkError(err)) {
+        // Sem conexão não houve autenticação: dicas de senha/chave só confundiriam.
+        if (/ECONNREFUSED/i.test(err.message)) {
+            logger.error(`→ A porta ${config.ssh.port} recusou a conexão: não há servidor SSH escutando nela (ou o firewall rejeita).`);
+        } else if (/ENOTFOUND|getaddrinfo/i.test(err.message)) {
+            logger.error('→ O nome do servidor não foi encontrado (DNS): confira SSH_HOST ou use o IP.');
+        } else {
+            logger.error(`→ Sem resposta do SSH na porta ${config.ssh.port}: serviço SSH parado, firewall/VPN bloqueando a porta ou host inacessível.`);
+        }
+        logger.error(`→ ${SSH_WINDOWS_HINT}`);
+        logger.error('=======================================================');
+        return;
+    }
     logger.error(`Método tentado: ${d.method}`);
 
     if (d.method === 'password') {
@@ -338,89 +321,79 @@ function mapSshError(err) {
             '(PasswordAuthentication / KbdInteractiveAuthentication). Se o servidor exige chave, configure ' +
             'SSH_PRIVATE_KEY_PATH no .env. Confirme também que a conta não está bloqueada ou expirada.';
     }
-    if (/ECONNREFUSED|ETIMEDOUT|timed out|getaddrinfo|EHOSTUNREACH|ENOTFOUND/i.test(raw)) {
-        return 'Servidor SSH inacessível: verifique host, porta e firewall.';
+    if (isSshNetworkError(err) || /timed out/i.test(raw)) {
+        const where = `${config.ssh.host}:${config.ssh.port}`;
+        const why = /ECONNREFUSED/i.test(raw) ? 'recusou a conexão (nenhum servidor SSH escutando)'
+            : /ENOTFOUND|getaddrinfo/i.test(raw) ? 'não foi encontrado (nome/DNS)'
+                : 'não respondeu (SSH parado, firewall ou VPN bloqueando a porta)';
+        return `Servidor SSH ${where} ${why}. ${SSH_WINDOWS_HINT}`;
     }
     return 'Falha SSH: ' + raw;
 }
 
 /**
- * Retorna { path, totalGB, freeGB, usedPct } em caso de sucesso,
- * ou { error } com mensagem acionável em caso de falha.
+ * Lê o uso dos volumes que contêm os diretórios informados, no servidor de
+ * banco (via SSH, ou local quando o painel roda na mesma máquina do banco).
+ *  - Linux:   `df -kP` em CADA diretório (o df resolve o ponto de montagem
+ *             exato; diretórios inexistentes voltam em `missing`).
+ *  - Windows: Win32_Volume (letras de unidade e volumes montados em pasta),
+ *             associado pelo prefixo mais longo, sem diferenciar maiúsculas.
+ * ASM (+DATA) não passa por aqui (é lido do banco, em src/storage.js).
+ * Não lança: problemas viram mensagens em `errors`.
+ * @param {string[]} dirs  diretórios (com separador final)
+ * @returns {Promise<{ mounts: object[], dirMount: object, missing: string[], errors: string[] }>}
  */
-async function getOsDisk() {
-    if (config.demoMode) {
-        return { path: 'C:', totalGB: 500, freeGB: 120, usedPct: 76 };
-    }
+async function readDiskUsage(dirs) {
+    const usage = { mounts: [], dirMount: {}, missing: [], errors: [] };
+    const byStyle = (st) => (dirs || []).filter((d) => sp.pathStyle(d) === st);
+    const posix = byStyle('posix');
+    const win = byStyle('windows');
+    const unc = byStyle('unc');
+    if (unc.length) usage.errors.push(`Caminhos de rede não são lidos (sem letra de unidade): ${unc.join(', ')}`);
 
-    const basePathRes = await runQuery('defaultDataPath');
-    const dbPath = basePathRes[0]?.PATH || basePathRes[0]?.path || '';
-    if (!dbPath) return { error: 'Não foi possível determinar o caminho dos datafiles.' };
+    const panelWin = os.platform() === 'win32';
+    const used = new Map();
 
-    const isRemoteLinux = dbPath.startsWith('/');
-    let totalGB = 0;
-    let freeGB = 0;
-    let finalPath = dbPath;
-
-    if (config.ssh.host) {
-        let ssh;
-        try {
-            ssh = await connectSsh();
-            if (isRemoteLinux) {
-                const result = await ssh.execCommand(`df -kP ${shellEscape(dbPath)}`);
-                if (result.code !== 0 || !result.stdout.trim()) {
-                    return { error: 'Comando df falhou no servidor: ' + (result.stderr || 'sem saída').trim() };
-                }
-                const parsed = parseDf(result.stdout, dbPath);
-                if (!parsed) return { error: 'Não foi possível localizar o ponto de montagem para ' + dbPath };
-                ({ totalGB, freeGB, path: finalPath } = parsed);
-            } else {
-                const drive = driveLetter(dbPath);
-                if (!drive) {
-                    return { error: `Caminho de datafile não suportado para leitura de disco: '${dbPath}'. ` +
-                        `Apenas drives com letra (ex.: D:) são suportados; UNC (\\\\servidor\\share) e ASM (+DATA) não.` };
-                }
-                finalPath = drive;
-                const result = await ssh.execCommand(winDiskCommand(drive));
-                if (result.code !== 0 || !result.stdout.trim()) {
-                    return { error: 'Leitura de disco remoto falhou: ' + (result.stderr || 'sem saída').trim() };
-                }
-                const parsed = parseWinJson(result.stdout);
-                if (!parsed) return { error: 'Saída inesperada ao ler o disco remoto.' };
-                ({ freeGB, totalGB } = parsed);
-            }
-        } catch (sshErr) {
-            logSshDiagnostics(sshErr);
-            return { error: mapSshError(sshErr) };
-        } finally {
-            if (ssh) ssh.dispose();
-        }
-    } else {
-        const isWin = os.platform() === 'win32';
-        if (isWin) {
-            if (dbPath.startsWith('/')) {
-                return { error: 'O Banco está no Linux, mas o painel roda no Windows. Configure o acesso SSH no .env para ler o disco remotamente.' };
-            }
-            const drive = driveLetter(dbPath);
-            if (!drive) {
-                return { error: `Caminho de datafile não suportado para leitura de disco: '${dbPath}'. ` +
-                    `Apenas drives com letra (ex.: D:) são suportados; UNC (\\\\servidor\\share) e ASM (+DATA) não.` };
-            }
-            finalPath = drive;
-            const output = execSync(winDiskCommand(drive), { encoding: 'utf8', windowsHide: true });
-            const parsed = parseWinJson(output);
-            if (!parsed) return { error: 'Não foi possível ler o disco local (' + drive + ').' };
-            ({ freeGB, totalGB } = parsed);
+    if (posix.length) {
+        if (!config.ssh.host && panelWin) {
+            usage.errors.push('O banco está no Linux, mas o painel roda no Windows. Configure o acesso SSH no .env para ler os discos do servidor.');
         } else {
-            const output = execSync(`df -kP ${shellEscape(dbPath)}`, { encoding: 'utf8', windowsHide: true });
-            const parsed = parseDf(output, dbPath);
-            if (!parsed) return { error: 'Não foi possível localizar o ponto de montagem para ' + dbPath };
-            ({ totalGB, freeGB, path: finalPath } = parsed);
+            const r = await execOnServer(dfByDirCommand(posix));
+            const parsed = sp.parseDfByDir(r.stdout);
+            if (!parsed.mounts.length && r.code !== 0) {
+                usage.errors.push('Leitura de disco (df) falhou: ' + String(r.stderr || 'sem saída').trim().slice(0, 300));
+            } else {
+                parsed.mounts.forEach((m) => used.set(m.mount, m));
+                Object.assign(usage.dirMount, parsed.dirMount);
+                usage.missing.push(...parsed.missing);
+            }
         }
     }
 
-    const usedPct = totalGB > 0 ? Math.round(((totalGB - freeGB) / totalGB) * 100) : 0;
-    return { path: finalPath, totalGB, freeGB, usedPct };
+    if (win.length) {
+        if (!config.ssh.host && !panelWin) {
+            usage.errors.push('O banco está no Windows, mas o painel roda no Linux. Configure o acesso SSH no .env para ler os discos do servidor.');
+        } else {
+            const r = await execOnServer(winVolumesCommand());
+            const vols = sp.parseWinVolumes(r.stdout);
+            if (!vols.length) {
+                usage.errors.push('Leitura dos volumes do Windows falhou: ' + String(r.stderr || r.stdout || 'sem saída').trim().slice(0, 300));
+            } else {
+                for (const d of win) {
+                    const m = sp.findMount(d, vols);
+                    if (m) {
+                        used.set(m.mount, m);
+                        usage.dirMount[sp.dirKey(d)] = m.mount;
+                    } else {
+                        usage.missing.push(d);
+                    }
+                }
+            }
+        }
+    }
+
+    usage.mounts = [...used.values()];
+    return usage;
 }
 
 /**
@@ -433,70 +406,165 @@ async function getOsMemory() {
         return { totalMB: 16384, freeMB: 5200, usedMB: 11184, usedPct: 68, swap: { totalMB: 8192, usedMB: 410, usedPct: 5 } };
     }
 
-    // Determina o SO do servidor da mesma forma que o disco: caminho dos datafiles.
-    const basePathRes = await runQuery('defaultDataPath');
-    const dbPath = basePathRes[0]?.PATH || basePathRes[0]?.path || '';
-    const serverIsLinux = dbPath ? dbPath.startsWith('/') : os.platform() !== 'win32';
+    // SO do servidor pelo caminho dos datafiles (ASM não revela: aí sonda o servidor).
+    const serverIsLinux = (await detectServerOs()) === 'linux'; // guardado por 10 min
 
     if (config.ssh.host) {
-        let ssh;
-        try {
-            ssh = await connectSsh();
-            if (serverIsLinux) {
-                const result = await ssh.execCommand('cat /proc/meminfo');
-                if (result.code !== 0 || !result.stdout.trim()) {
-                    return { error: 'Falha ao ler memória (/proc/meminfo): ' + (result.stderr || 'sem saída').trim() };
-                }
-                const parsed = parseMeminfo(result.stdout);
-                return parsed || { error: 'Não foi possível interpretar /proc/meminfo.' };
-            }
-            const result = await ssh.execCommand(winMemCommand());
+        // Pela conexão SSH compartilhada (execOnServer): sem um login novo a cada leitura.
+        if (serverIsLinux) {
+            const result = await execOnServer('cat /proc/meminfo');
             if (result.code !== 0 || !result.stdout.trim()) {
-                return { error: 'Leitura de memória remota falhou: ' + (result.stderr || 'sem saída').trim() };
+                return { error: result.code === -1 ? result.stderr : 'Falha ao ler memória (/proc/meminfo): ' + (result.stderr || 'sem saída').trim() };
             }
-            const parsed = parseWinMem(result.stdout);
-            return parsed || { error: 'Saída inesperada ao ler a memória remota.' };
-        } catch (sshErr) {
-            logSshDiagnostics(sshErr);
-            return { error: mapSshError(sshErr) };
-        } finally {
-            if (ssh) ssh.dispose();
+            const parsed = parseMeminfo(result.stdout);
+            return parsed || { error: 'Não foi possível interpretar /proc/meminfo.' };
         }
+        const result = await execOnServer(winMemCommand());
+        if (result.code !== 0 || !result.stdout.trim()) {
+            return { error: result.code === -1 ? result.stderr : 'Leitura de memória remota falhou: ' + (result.stderr || 'sem saída').trim() };
+        }
+        const parsed = parseWinMem(result.stdout);
+        return parsed || { error: 'Saída inesperada ao ler a memória remota.' };
     }
 
     // Banco local (mesma máquina do painel)
     if (os.platform() === 'win32') {
-        if (dbPath.startsWith('/')) {
+        if (serverIsLinux) {
             return { error: 'O Banco está no Linux, mas o painel roda no Windows. Configure o acesso SSH no .env.' };
         }
-        const output = execSync(winMemCommand(), { encoding: 'utf8', windowsHide: true });
-        return parseWinMem(output) || { error: 'Não foi possível ler a memória local (Windows).' };
+        const r = await execLocal(winMemCommand());
+        if (r.code !== 0 || !r.stdout.trim()) {
+            return { error: 'Leitura de memória local (Windows) falhou: ' + String(r.stderr || 'sem saída').trim().slice(0, 300) };
+        }
+        return parseWinMem(r.stdout) || { error: 'Não foi possível ler a memória local (Windows).' };
     }
-    const output = execSync('cat /proc/meminfo', { encoding: 'utf8' });
-    return parseMeminfo(output) || { error: 'Não foi possível ler /proc/meminfo local.' };
+    const r = await execLocal('cat /proc/meminfo');
+    if (r.code !== 0 || !r.stdout.trim()) {
+        return { error: 'Falha ao ler /proc/meminfo local: ' + String(r.stderr || 'sem saída').trim().slice(0, 300) };
+    }
+    return parseMeminfo(r.stdout) || { error: 'Não foi possível ler /proc/meminfo local.' };
 }
 
 /**
  * Detecta o SO do servidor de banco: 'linux' ou 'windows'.
- * Usa o caminho dos datafiles (remoto) ou a plataforma local.
+ * Usa o caminho dos datafiles (remoto) ou a plataforma local. O resultado
+ * confirmado fica guardado por 10 min: o SO do servidor não muda, e várias telas
+ * perguntam isso a cada carga.
  */
+const OS_CACHE_MS = 10 * 60000;
+let serverOsCache = null; // { value, at }
+
 async function detectServerOs() {
+    if (serverOsCache && Date.now() - serverOsCache.at < OS_CACHE_MS) return serverOsCache.value;
+    const remember = (value) => { serverOsCache = { value, at: Date.now() }; return value; };
     try {
         const r = await runQuery('defaultDataPath');
-        const p = r[0]?.PATH || r[0]?.path || '';
-        if (p) return p.startsWith('/') ? 'linux' : 'windows';
+        const fromPath = sp.osFromPath(r[0]?.PATH || r[0]?.path || '');
+        if (fromPath) return remember(fromPath);
     } catch { /* ignore */ }
-    // Caminho dos datafiles indisponível (banco só montado, erro, etc.):
+    // Caminho dos datafiles indisponível (banco só montado, ASM, erro, etc.):
     // prova o SO do servidor remoto em vez de assumir Linux — senão um banco
     // WINDOWS receberia comandos Linux (export/su/$ORACLE_HOME) e falharia.
     if (config.ssh.host) {
         try {
             const probe = await execOnServer('cmd /c echo %OS%');
-            if (/Windows_NT/i.test((probe.stdout || '') + (probe.stderr || ''))) return 'windows';
+            const out = (probe.stdout || '') + (probe.stderr || '');
+            if (/Windows_NT/i.test(out)) return remember('windows');
+            if (probe.code !== -1 && out) return remember('linux'); // respondeu, e não é Windows
         } catch { /* ignore */ }
-        return 'linux'; // último recurso: mantém o comportamento Linux já testado
+        return 'linux'; // último recurso (não guardado): mantém o comportamento Linux já testado
     }
-    return os.platform() === 'win32' ? 'windows' : 'linux';
+    return remember(os.platform() === 'win32' ? 'windows' : 'linux');
+}
+
+// ==========================================================================
+// SSH compartilhado: abrir uma conexão por comando custava 0,5–2 s (handshake,
+// PAM, registro de login no servidor) a cada leitura de disco/memória. Comandos
+// curtos usam uma conexão persistente (fechada após 2 min sem uso); comandos
+// longos ou com saída ao vivo (RMAN, recuperação) seguem com conexão própria.
+// ==========================================================================
+const SSH_IDLE_MS = 120000;
+const SSH_MAX_CHANNELS = 6;     // abaixo do MaxSessions padrão do sshd (10)
+let shared = null;              // { ssh, active, lastUse }
+let sharedConnecting = null;
+let idleTimer = null;
+
+// Depois de uma falha de conexão, as leituras falham na hora por 60 s (com o mesmo
+// motivo) em vez de cada uma esperar o timeout de 20 s — e sem repetir tentativas
+// de senha que poderiam bloquear a conta no servidor.
+const SSH_RETRY_AFTER_MS = 60000;
+let sshDown = null; // { until, err }
+
+async function getSharedSsh() {
+    if (shared && shared.ssh.isConnected()) return shared;
+    shared = null;
+    if (sshDown && Date.now() < sshDown.until) throw sshDown.err;
+    if (!sharedConnecting) {
+        sharedConnecting = connectSsh()
+            .catch((err) => {
+                logSshDiagnostics(err); // uma vez por falha, não uma por leitura
+                err.logged = true;
+                sshDown = { until: Date.now() + SSH_RETRY_AFTER_MS, err };
+                throw err;
+            })
+            .then((ssh) => {
+                sshDown = null;
+                const entry = { ssh, active: 0, lastUse: Date.now() };
+                const drop = () => { if (shared === entry) shared = null; };
+                ssh.connection.on('close', drop);
+                ssh.connection.on('end', drop);
+                ssh.connection.on('error', drop);
+                shared = entry;
+                armSshIdle();
+                return entry;
+            })
+            .finally(() => { sharedConnecting = null; });
+    }
+    return sharedConnecting;
+}
+
+function armSshIdle() {
+    if (idleTimer) return;
+    idleTimer = setInterval(() => {
+        if (!shared) { clearInterval(idleTimer); idleTimer = null; return; }
+        if (shared.active === 0 && Date.now() - shared.lastUse > SSH_IDLE_MS) closeSsh();
+    }, 30000);
+    if (idleTimer.unref) idleTimer.unref();
+}
+
+/** Fecha a conexão compartilhada (inatividade ou desligamento do painel). */
+function closeSsh() {
+    const entry = shared;
+    shared = null;
+    if (idleTimer) { clearInterval(idleTimer); idleTimer = null; }
+    if (entry) { try { entry.ssh.dispose(); } catch { /* ignore */ } }
+}
+
+// Falhou antes de o comando começar (conexão fechada / canal recusado): repetir é seguro.
+const RETRYABLE_SSH = /Not connected|Channel open failure|exec request failed/i;
+
+/** Comando curto pela conexão compartilhada; null = use uma conexão própria. */
+async function execShared(command) {
+    let entry;
+    try {
+        entry = await getSharedSsh();
+    } catch (err) {
+        if (!err.logged) logSshDiagnostics(err);
+        return { code: -1, stdout: '', stderr: mapSshError(err) };
+    }
+    if (entry.active >= SSH_MAX_CHANNELS) return null;
+    entry.active++;
+    try {
+        const r = await entry.ssh.execCommand(command);
+        return { code: r.code, stdout: cleanPsClixml(r.stdout || ''), stderr: cleanPsClixml(r.stderr || '') };
+    } catch (err) {
+        if (shared === entry) closeSsh();
+        if (RETRYABLE_SSH.test(err.message || '')) return null;
+        return { code: -1, stdout: '', stderr: mapSshError(err) };
+    } finally {
+        entry.active--;
+        entry.lastUse = Date.now();
+    }
 }
 
 /**
@@ -511,13 +579,24 @@ async function detectServerOs() {
  */
 async function execOnServer(command, opts = {}) {
     const stdin = opts.stdin;
+    const onOutput = typeof opts.onOutput === 'function' ? opts.onOutput : null;
     if (config.ssh.host) {
+        // Leituras curtas (sem script na entrada nem saída ao vivo) reaproveitam a
+        // conexão compartilhada; scripts sqlplus/RMAN usam conexão própria.
+        if (stdin == null && !onOutput && !(opts.timeoutMs > 120000)) {
+            const r = await execShared(command);
+            if (r) return r;
+        }
         // Em SSH as variáveis de ambiente são setadas no próprio comando (opts.env
         // não se aplica ao canal remoto).
         let ssh;
         try {
             ssh = await connectSsh();
             const execOpts = stdin != null ? { stdin } : {};
+            if (onOutput) {
+                execOpts.onStdout = (chunk) => safeEmit(onOutput, chunk, false);
+                execOpts.onStderr = (chunk) => safeEmit(onOutput, chunk, true);
+            }
             const r = await ssh.execCommand(command, execOpts);
             return { code: r.code, stdout: cleanPsClixml(r.stdout || ''), stderr: cleanPsClixml(r.stderr || '') };
         } catch (err) {
@@ -527,21 +606,75 @@ async function execOnServer(command, opts = {}) {
             if (ssh) ssh.dispose();
         }
     }
-    try {
-        const execOpts = { encoding: 'utf8', windowsHide: true };
-        if (stdin != null) execOpts.input = stdin;
-        // Execução LOCAL: herda o ambiente do painel; opts.env acrescenta/ajusta
-        // (ex.: ORACLE_HOME + PATH para achar rman/sqlplus no caso Windows local).
-        if (opts.env) execOpts.env = { ...process.env, ...opts.env };
-        const stdout = execSync(command, execOpts);
-        return { code: 0, stdout: cleanPsClixml(stdout), stderr: '' };
-    } catch (err) {
-        return { code: err.status || 1, stdout: cleanPsClixml((err.stdout || '').toString()), stderr: cleanPsClixml((err.stderr || '').toString()) || err.message };
-    }
+    // Execução LOCAL: herda o ambiente do painel; opts.env acrescenta/ajusta.
+    // Assíncrona (spawn): um RMAN de horas não pode travar o painel inteiro,
+    // como acontecia com execSync.
+    return execLocal(command, { stdin, env: opts.env, onOutput, timeoutMs: opts.timeoutMs });
+}
+
+function safeEmit(fn, chunk, isErr) {
+    try { fn(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk), isErr); } catch { /* o consumidor não derruba a execução */ }
+}
+
+/**
+ * Executa um comando no shell local (cmd.exe no Windows, /bin/sh no Linux — o
+ * mesmo shell que o execSync usava), sem bloquear o event loop.
+ * @returns {Promise<{code:number, stdout:string, stderr:string}>}
+ */
+function execLocal(command, { stdin, env, onOutput, timeoutMs } = {}) {
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (r) => { if (!settled) { settled = true; resolve(r); } };
+        let child;
+        try {
+            child = spawn(command, { shell: true, windowsHide: true, env: env ? { ...process.env, ...env } : process.env });
+        } catch (err) {
+            finish({ code: 1, stdout: '', stderr: err.message });
+            return;
+        }
+        const MAX = 16 * 1024 * 1024; // teto de memória por stream
+        const out = [];
+        const errs = [];
+        let outLen = 0;
+        let errLen = 0;
+        child.stdout.on('data', (c) => {
+            if (outLen < MAX) { out.push(c); outLen += c.length; }
+            if (onOutput) safeEmit(onOutput, c, false);
+        });
+        child.stderr.on('data', (c) => {
+            if (errLen < MAX) { errs.push(c); errLen += c.length; }
+            if (onOutput) safeEmit(onOutput, c, true);
+        });
+        let timer = null;
+        if (timeoutMs) {
+            timer = setTimeout(() => {
+                try {
+                    // No Windows o kill() só derruba o cmd.exe; o taskkill /T leva a árvore toda.
+                    if (process.platform === 'win32') spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+                    else child.kill();
+                } catch { /* já terminou */ }
+            }, timeoutMs);
+        }
+        child.on('error', (err) => {
+            if (timer) clearTimeout(timer);
+            finish({ code: 1, stdout: cleanPsClixml(Buffer.concat(out).toString('utf8')), stderr: err.message });
+        });
+        child.on('close', (code, signal) => {
+            if (timer) clearTimeout(timer);
+            const stdout = cleanPsClixml(Buffer.concat(out).toString('utf8'));
+            let stderr = cleanPsClixml(Buffer.concat(errs).toString('utf8'));
+            const exit = code == null ? 1 : code;
+            if (exit !== 0 && !stderr.trim()) stderr = signal ? `processo encerrado (${signal})` : `código de saída ${exit}`;
+            finish({ code: exit, stdout, stderr });
+        });
+        child.stdin.on('error', () => { /* processo saiu antes de ler tudo */ });
+        if (stdin != null) child.stdin.end(stdin);
+        else child.stdin.end();
+    });
 }
 
 module.exports = {
-    getOsDisk, getOsMemory, detectServerOs, execOnServer, psEncoded, cleanPsClixml,
+    readDiskUsage, getOsMemory, detectServerOs, execOnServer, closeSsh, psEncoded, cleanPsClixml,
     // expostos para teste/diagnóstico (builders puros):
-    winDiskCommand, winMemCommand, driveLetter,
+    winVolumesCommand, dfByDirCommand, winMemCommand,
 };

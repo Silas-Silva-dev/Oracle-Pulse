@@ -67,28 +67,35 @@ const queries = {
     `,
 
     // Comandos SQL em Tempo Real e Sessões Presas
+    // O texto do SQL vem por subconsulta escalar: a V$SQL só é lida para as sessões
+    // envolvidas em bloqueio (normalmente nenhuma). O LEFT JOIN anterior varria a
+    // V$SQL inteira a cada atualização e contava em dobro cursores com vários filhos.
     sqlCommands: `
         SELECT
             NVL(SUM(CASE WHEN blocking_session IS NOT NULL THEN 1 ELSE 0 END), 0) as blocked_sessions,
-            NVL(SUM(CASE WHEN UPPER(sql_text) LIKE 'SELECT%' AND UPPER(sql_text) NOT LIKE '%WITH%' THEN 1 ELSE 0 END), 0) as selects,
-            NVL(SUM(CASE WHEN UPPER(sql_text) LIKE 'INSERT%' AND UPPER(sql_text) NOT LIKE '%SELECT%' THEN 1 ELSE 0 END), 0) as inserts,
-            NVL(SUM(CASE WHEN UPPER(sql_text) LIKE 'UPDATE%' AND UPPER(sql_text) NOT LIKE '%SELECT%' THEN 1 ELSE 0 END), 0) as updates,
-            NVL(SUM(CASE WHEN UPPER(sql_text) LIKE 'DELETE%' AND UPPER(sql_text) NOT LIKE '%SELECT%' THEN 1 ELSE 0 END), 0) as deletes,
-            NVL(SUM(CASE WHEN UPPER(sql_text) LIKE 'INSERT%SELECT%' THEN 1 ELSE 0 END), 0) as insert_with_select,
-            NVL(SUM(CASE WHEN UPPER(sql_text) LIKE 'UPDATE%SELECT%' THEN 1 ELSE 0 END), 0) as update_with_select,
-            NVL(SUM(CASE WHEN UPPER(sql_text) LIKE 'DELETE%SELECT%' THEN 1 ELSE 0 END), 0) as delete_with_select,
-            NVL(SUM(CASE WHEN UPPER(sql_text) LIKE 'WITH%' THEN 1 ELSE 0 END), 0) as cte,
-            NVL(SUM(CASE WHEN UPPER(sql_text) LIKE 'MERGE%' THEN 1 ELSE 0 END), 0) as merge,
-            NVL(SUM(CASE WHEN sql_text IS NOT NULL
-                      AND UPPER(sql_text) NOT LIKE 'SELECT%'
-                      AND UPPER(sql_text) NOT LIKE 'INSERT%'
-                      AND UPPER(sql_text) NOT LIKE 'UPDATE%'
-                      AND UPPER(sql_text) NOT LIKE 'DELETE%'
-                      AND UPPER(sql_text) NOT LIKE 'WITH%'
-                      AND UPPER(sql_text) NOT LIKE 'MERGE%' THEN 1 ELSE 0 END), 0) as others
-        FROM v$session s
-        LEFT JOIN v$sql q ON s.sql_id = q.sql_id
-        WHERE s.blocking_session IS NOT NULL OR s.sid IN (SELECT blocking_session FROM v$session WHERE blocking_session IS NOT NULL)
+            NVL(SUM(CASE WHEN txt LIKE 'SELECT%' AND txt NOT LIKE '%WITH%' THEN 1 ELSE 0 END), 0) as selects,
+            NVL(SUM(CASE WHEN txt LIKE 'INSERT%' AND txt NOT LIKE '%SELECT%' THEN 1 ELSE 0 END), 0) as inserts,
+            NVL(SUM(CASE WHEN txt LIKE 'UPDATE%' AND txt NOT LIKE '%SELECT%' THEN 1 ELSE 0 END), 0) as updates,
+            NVL(SUM(CASE WHEN txt LIKE 'DELETE%' AND txt NOT LIKE '%SELECT%' THEN 1 ELSE 0 END), 0) as deletes,
+            NVL(SUM(CASE WHEN txt LIKE 'INSERT%SELECT%' THEN 1 ELSE 0 END), 0) as insert_with_select,
+            NVL(SUM(CASE WHEN txt LIKE 'UPDATE%SELECT%' THEN 1 ELSE 0 END), 0) as update_with_select,
+            NVL(SUM(CASE WHEN txt LIKE 'DELETE%SELECT%' THEN 1 ELSE 0 END), 0) as delete_with_select,
+            NVL(SUM(CASE WHEN txt LIKE 'WITH%' THEN 1 ELSE 0 END), 0) as cte,
+            NVL(SUM(CASE WHEN txt LIKE 'MERGE%' THEN 1 ELSE 0 END), 0) as merge,
+            NVL(SUM(CASE WHEN txt IS NOT NULL
+                      AND txt NOT LIKE 'SELECT%'
+                      AND txt NOT LIKE 'INSERT%'
+                      AND txt NOT LIKE 'UPDATE%'
+                      AND txt NOT LIKE 'DELETE%'
+                      AND txt NOT LIKE 'WITH%'
+                      AND txt NOT LIKE 'MERGE%' THEN 1 ELSE 0 END), 0) as others
+        FROM (
+            SELECT s.blocking_session,
+                   (SELECT UPPER(q.sql_text) FROM v$sql q WHERE q.sql_id = s.sql_id AND ROWNUM = 1) as txt
+            FROM v$session s
+            WHERE s.blocking_session IS NOT NULL
+               OR s.sid IN (SELECT blocking_session FROM v$session WHERE blocking_session IS NOT NULL)
+        )
     `,
 
     tablespaceUsage: `
@@ -138,17 +145,27 @@ const queries = {
     `,
 
     // Performance: Top SQL por CPU
+    // V$SQLSTATS (não V$SQL): feita para monitoração, não disputa os latches da
+    // library cache. As consultas do próprio painel (marcadas com /* OraclePulse */)
+    // ficam fora da lista; o total delas vem à parte, para transparência.
     topSql: `
-        SELECT * FROM (
+        SELECT sql_id, cpu_seconds, elapsed_seconds, executions, sql_snippet, pulse_cpu_seconds, total_cpu_seconds FROM (
             SELECT
                 sql_id,
                 cpu_time / 1000000 as cpu_seconds,
                 elapsed_time / 1000000 as elapsed_seconds,
                 executions,
-                SUBSTR(sql_text, 1, 100) as sql_snippet
-            FROM v$sql
-            ORDER BY cpu_time DESC
-        ) WHERE ROWNUM <= 5
+                SUBSTR(sql_text, 1, 100) as sql_snippet,
+                is_pulse,
+                ROUND(SUM(CASE WHEN is_pulse = 1 THEN cpu_time ELSE 0 END) OVER () / 1000000, 2) as pulse_cpu_seconds,
+                ROUND(SUM(cpu_time) OVER () / 1000000, 2) as total_cpu_seconds
+            FROM (
+                SELECT sql_id, cpu_time, elapsed_time, executions, sql_text,
+                       CASE WHEN sql_text LIKE '/* OraclePulse */%' THEN 1 ELSE 0 END as is_pulse
+                FROM v$sqlstats
+            )
+            ORDER BY is_pulse, cpu_time DESC
+        ) WHERE is_pulse = 0 AND ROWNUM <= 5
     `,
 
     // Top SQL por tempo decorrido (elapsed) - complementa a visão de CPU
@@ -248,23 +265,57 @@ const queries = {
         AND group_id = 2
     `,
 
-    // Listagem de Datafiles por Tablespace
+    // Listagem de Datafiles por Tablespace. creation_change# (v$datafile) diz qual
+    // arquivo foi criado por último: o diretório dele é o destino ATUAL do
+    // tablespace (bancos que cresceram para /u02, /u03, E:\, F:\ ...).
     datafilesList: `
+        SELECT
+            f.tablespace_name,
+            f.file_name,
+            f.file_id,
+            ROUND(NVL(f.bytes, 0) / 1024 / 1024, 2) as size_mb,
+            f.autoextensible,
+            ROUND(NVL(f.maxbytes, 0) / 1024 / 1024, 2) as max_size_mb,
+            d.creation_change# as creation_change
+        FROM dba_data_files f
+        LEFT JOIN v$datafile d ON d.file# = f.file_id
+        ORDER BY f.tablespace_name, f.file_id
+    `,
+
+    // Mesma lista sem v$datafile (usuário sem acesso à view): a ordem de
+    // criação passa a ser estimada pelo file_id.
+    datafilesListBasic: `
         SELECT
             tablespace_name,
             file_name,
-            ROUND(bytes / 1024 / 1024, 2) as size_mb,
+            file_id,
+            ROUND(NVL(bytes, 0) / 1024 / 1024, 2) as size_mb,
             autoextensible,
-            ROUND(maxbytes / 1024 / 1024, 2) as max_size_mb
+            ROUND(NVL(maxbytes, 0) / 1024 / 1024, 2) as max_size_mb
         FROM dba_data_files
-        ORDER BY tablespace_name, file_name
+        ORDER BY tablespace_name, file_id
     `,
 
-    // Buscar caminho padrão do banco (BASE PATH)
+    // Tempfiles (também ocupam volumes do servidor)
+    tempfilesList: `
+        SELECT tablespace_name, file_name, ROUND(NVL(bytes, 0) / 1024 / 1024, 2) as size_mb
+        FROM dba_temp_files
+    `,
+
+    // Disk groups ASM (quando os datafiles estão em +DATA etc.)
+    asmDiskgroups: `
+        SELECT name, total_mb, free_mb FROM v$asm_diskgroup
+    `,
+
+    // Diretório de um datafile, usado só para descobrir o SO do servidor.
+    // Prefere caminhos de sistema de arquivos (ASM "+DATA" não revela o SO) e o
+    // arquivo mais recente — não um arquivo qualquer.
     defaultDataPath: `
-        SELECT SUBSTR(file_name, 1, GREATEST(INSTR(file_name, '\\', -1), INSTR(file_name, '/', -1))) as path
-        FROM dba_data_files
-        WHERE ROWNUM = 1
+        SELECT path FROM (
+            SELECT SUBSTR(file_name, 1, GREATEST(INSTR(file_name, '\\', -1), INSTR(file_name, '/', -1))) as path
+            FROM dba_data_files
+            ORDER BY CASE WHEN file_name LIKE '+%' THEN 1 ELSE 0 END, file_id DESC
+        ) WHERE ROWNUM = 1
     `,
 
     // ===================== MONITORAMENTO DE BACKUP / RECUPERAÇÃO =====================
@@ -289,6 +340,13 @@ const queries = {
             FROM v$rman_backup_job_details
             ORDER BY start_time DESC
         ) WHERE ROWNUM <= 10
+    `,
+
+    // Fim do último backup do banco (completo ou incremental) concluído.
+    lastDbBackupEnd: `
+        SELECT TO_CHAR(MAX(end_time), 'YYYY-MM-DD"T"HH24:MI:SS') AS end_iso
+        FROM v$rman_backup_job_details
+        WHERE status LIKE 'COMPLETED%' AND input_type IN ('DB FULL', 'DB INCR')
     `,
 
     // Log (saída) de uma sessão RMAN específica — v$rman_output é volátil

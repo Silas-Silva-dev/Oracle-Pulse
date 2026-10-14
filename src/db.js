@@ -55,6 +55,11 @@ async function initPool() {
         poolOptions.privilege = oracledb.SYSDBA;
         logger.info('Tentando conexão como SYSDBA...');
     }
+    // Sessões do painel identificáveis em V$SESSION (MODULE = 'Oracle Pulse').
+    poolOptions.sessionCallback = (conn, requestedTag, done) => {
+        try { conn.module = 'Oracle Pulse'; } catch { /* atributo não suportado: segue */ }
+        done();
+    };
     pool = await oracledb.createPool(poolOptions);
     logger.info('Pool de conexões Oracle criado com sucesso.');
     return pool;
@@ -82,6 +87,16 @@ async function getConnection() {
     return p.getConnection();
 }
 
+/**
+ * Marca as consultas do painel com um comentário inicial: o DBA as reconhece em
+ * V$SQL/V$SQLSTATS e o Top SQL do painel as separa das consultas da aplicação.
+ */
+const SQL_TAG = '/* OraclePulse */ ';
+function tag(sql) {
+    const s = String(sql).replace(/^\s+/, '');
+    return s.startsWith(SQL_TAG) ? s : SQL_TAG + s;
+}
+
 /** Executa uma query nomeada do dicionário (ou retorna mock em DEMO). */
 async function runQuery(queryName, binds = {}) {
     if (config.demoMode) {
@@ -93,7 +108,7 @@ async function runQuery(queryName, binds = {}) {
     let connection;
     try {
         connection = await getConnection();
-        const result = await connection.execute(sql, binds);
+        const result = await connection.execute(tag(sql), binds);
         return result.rows;
     } catch (err) {
         logger.error(`Erro na query [${queryName}]:`, err.message);
@@ -340,6 +355,8 @@ module.exports = {
     ensurePool,
     getConnection,
     runQuery,
+    tag,
+    SQL_TAG,
     executeAdmin,
     executeScript,
     closePool,

@@ -99,6 +99,12 @@ const config = {
         public: path.join(__dirname, '..', 'public'),
         logs: path.join(__dirname, '..', 'logs'),
     },
+
+    // Atualização pelo GitHub (tela "Sobre"). repo no formato "dono/repositorio".
+    update: {
+        repo: process.env.UPDATE_REPO || 'Silas-Silva-dev/Oracle-Pulse',
+        enabled: String(process.env.UPDATE_DISABLED || '').toLowerCase() !== 'true',
+    },
 };
 
 /**
