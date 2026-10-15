@@ -3,6 +3,7 @@
  * Falha rápido (fail-fast) no startup se algo obrigatório estiver faltando,
  * em vez de quebrar silenciosamente no meio de uma requisição.
  */
+const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 
@@ -16,6 +17,21 @@ const int = (v, def) => {
 
 const config = {
     port: int(process.env.PORT, 3000),
+    // Endereço de escuta. Vazio = todas as interfaces (padrão). Ex.: 127.0.0.1 quando
+    // o acesso é só local (ou por proxy reverso na mesma máquina), ou o IP da rede de gestão.
+    bindHost: process.env.BIND_HOST || null,
+    // HTTPS opcional: certificado .pfx (TLS_PFX_PATH [+ TLS_PFX_PASSPHRASE]) ou par PEM
+    // (TLS_CERT_PATH + TLS_KEY_PATH). Sem isso o painel serve HTTP — e a senha e o token
+    // de sessão trafegam em texto puro pela rede.
+    tls: {
+        pfxPath: process.env.TLS_PFX_PATH || null,
+        pfxPassphrase: process.env.TLS_PFX_PASSPHRASE || null,
+        certPath: process.env.TLS_CERT_PATH || null,
+        keyPath: process.env.TLS_KEY_PATH || null,
+        get enabled() {
+            return !!(this.pfxPath || this.certPath || this.keyPath);
+        },
+    },
     demoMode: bool(process.env.DEMO_MODE),
 
     db: {
@@ -55,6 +71,10 @@ const config = {
         password: process.env.SSH_PASSWORD,
         port: int(process.env.SSH_PORT, 22),
         privateKeyPath: process.env.SSH_PRIVATE_KEY_PATH || null,
+        // Fingerprint(s) da chave do servidor SSH ("SHA256:...", como o ssh-keygen -lf
+        // mostra), separados por vírgula. Vazio = TOFU: a chave vista na 1ª conexão é
+        // registrada em logs/ssh-known-hosts.json e qualquer troca é recusada.
+        hostFingerprint: process.env.SSH_HOST_FINGERPRINT || null,
     },
 
     // Ambiente Oracle NO SERVIDOR (para automatizar comandos RMAN). Opcional:
@@ -122,6 +142,16 @@ function validateConfig() {
         problems.push('AUTH_VIEWER_USER definido sem AUTH_VIEWER_PASS_HASH.');
     }
 
+    const t = config.tls;
+    if (t.enabled) {
+        if (!t.pfxPath && !(t.certPath && t.keyPath)) {
+            problems.push('HTTPS: informe TLS_PFX_PATH, ou TLS_CERT_PATH E TLS_KEY_PATH.');
+        }
+        for (const [key, file] of [['TLS_PFX_PATH', t.pfxPath], ['TLS_CERT_PATH', t.certPath], ['TLS_KEY_PATH', t.keyPath]]) {
+            if (file && !fs.existsSync(file)) problems.push(`${key}: arquivo não encontrado (${file}).`);
+        }
+    }
+
     if (!config.demoMode) {
         if (!config.db.user) problems.push('DB_USER é obrigatório fora do modo DEMO.');
         if (!config.db.password) problems.push('DB_PASSWORD é obrigatório fora do modo DEMO.');
@@ -148,6 +178,12 @@ function validateConfig() {
     }
     if (config.oracleServer.sysPassword && /[\r\n]/.test(config.oracleServer.sysPassword)) {
         warnings.push('DB_SYS_PASSWORD contém quebra de linha — verifique as aspas no .env.');
+    }
+    for (const [key, hash] of [['AUTH_PASS_HASH', config.auth.passHash], ['AUTH_VIEWER_PASS_HASH', config.auth.viewerPassHash]]) {
+        if (hash && !String(hash).startsWith('scrypt$')) {
+            warnings.push(`${key} está no formato legado (SHA-256 sem salt — se o .env vazar, a senha cai em segundos): ` +
+                'gere um hash scrypt com "node bin/hash-password.js <senha>" (ou pelo instalador) e substitua.');
+        }
     }
     return warnings;
 }

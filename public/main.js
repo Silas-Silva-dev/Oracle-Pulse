@@ -192,6 +192,13 @@ function escapeHtml(s) {
     ));
 }
 
+// SQL_ID do Oracle (até 13 caracteres base-32). Vai dentro de onclick="...('id')":
+// ali o escape de HTML não basta (o navegador decodifica &#39; antes do JS rodar).
+function safeSqlId(v) {
+    const s = String(v ?? '');
+    return /^[0-9a-z]{1,13}$/.test(s) ? s : '';
+}
+
 function renderAlerts(alerts) {
     const list = alerts || [];
     lastAlertsSnapshot = list;
@@ -230,12 +237,13 @@ function renderAlerts(alerts) {
         const icon = a.severity === 'critical' ? 'fa-circle-exclamation' : 'fa-triangle-exclamation';
         const rel = formatSince(a.since);
         const since = rel ? `<span class="notif-since"><i class="far fa-clock"></i> ${rel}</span>` : '';
-        const safeId = String(a.id).replace(/'/g, "\\'");
+        // O id contém nomes vindos do banco/servidor (tablespace, volume): vai num
+        // atributo data-* (escape de HTML) e nunca dentro do código do onclick.
         return `
-        <div class="notif-item notif-${a.severity}">
+        <div class="notif-item notif-${a.severity === 'critical' ? 'critical' : 'warning'}">
             <i class="fas ${icon} notif-icon"></i>
             <div class="notif-body">${escapeHtml(a.message)}${since}</div>
-            <button class="notif-dismiss" type="button" aria-label="Fechar alerta" onclick="dismissAlert('${safeId}', event)">
+            <button class="notif-dismiss" type="button" aria-label="Fechar alerta" data-alert-id="${escapeHtml(a.id)}" onclick="dismissAlert(this.dataset.alertId, event)">
                 <i class="fas fa-xmark"></i>
             </button>
         </div>`;
@@ -702,6 +710,7 @@ function updateSqlTable(data, bodyId) {
     // "Ação" fica presa à direita: o botão "Ver" aparece em qualquer resolução.
     body.innerHTML = data.map(sql => {
         const id = escapeHtml(sql.SQL_ID ?? '');
+        const jsId = safeSqlId(sql.SQL_ID);
         const snippet = escapeHtml(sql.SQL_SNIPPET ?? '');
         return `
         <tr>
@@ -709,7 +718,7 @@ function updateSqlTable(data, bodyId) {
             <td><strong>${Number(sql.CPU_SECONDS || 0).toFixed(2)}</strong></td>
             <td>${Number(sql.EXECUTIONS || 0).toLocaleString('pt-BR')}</td>
             <td><div class="sql-snippet" title="${snippet}">${snippet}…</div></td>
-            <td class="col-action"><button class="btn-primary btn-xs" onclick="showSqlDetails('${id}')"><i class="fas fa-eye"></i> Ver</button></td>
+            <td class="col-action">${jsId ? `<button class="btn-primary btn-xs" onclick="showSqlDetails('${jsId}')"><i class="fas fa-eye"></i> Ver</button>` : '-'}</td>
         </tr>`;
     }).join('') || '<tr><td colspan="5" class="empty-row">Nenhuma consulta registrada.</td></tr>';
     // Transparência: quanto as consultas do próprio painel pesam (ficam fora da lista).
@@ -1085,23 +1094,25 @@ async function loadSessionsData() {
                         </td>
                     </tr>`;
             } else {
+                // USERNAME/PROGRAM vêm de V$SESSION: o PROGRAM é informado pelo próprio
+                // cliente que conecta (qualquer usuário do banco) — sempre escapados.
                 container.innerHTML = data.data.map(s => `
                     <tr class="${s.ROLE === 'VILÃO (RAIZ)' ? 'row-danger' : ''}">
-                        <td><span class="badge ${s.ROLE === 'VILÃO (RAIZ)' ? 'badge-red' : 'badge-blue'}">#${s.SID},${s.SERIAL}</span></td>
+                        <td><span class="badge ${s.ROLE === 'VILÃO (RAIZ)' ? 'badge-red' : 'badge-blue'}">#${Number(s.SID)},${Number(s.SERIAL)}</span></td>
                         <td>
                             <strong style="color: ${s.ROLE === 'VILÃO (RAIZ)' ? 'var(--accent-red)' : 'inherit'}">
-                                ${s.ROLE === 'VILÃO (RAIZ)' ? '<i class="fas fa-skull"></i> ' : ''}${s.VICTIM}
+                                ${s.ROLE === 'VILÃO (RAIZ)' ? '<i class="fas fa-skull"></i> ' : ''}${escapeHtml(s.VICTIM ?? '')}
                             </strong>
-                            <div style="font-size: 0.65rem; color: var(--text-secondary)">${s.ROLE}</div>
+                            <div style="font-size: 0.65rem; color: var(--text-secondary)">${escapeHtml(s.ROLE ?? '')}</div>
                         </td>
                         <td>
-                            ${s.BLOCKER_SID ? 
-                                `<span class="badge badge-red">ID: ${s.BLOCKER_SID} (${s.BLOCKER_USER})</span>` : 
+                            ${s.BLOCKER_SID ?
+                                `<span class="badge badge-red">ID: ${Number(s.BLOCKER_SID)} (${escapeHtml(s.BLOCKER_USER ?? '')})</span>` :
                                 '<span class="badge" style="background: #f1f5f9; color: #64748b">NENHUM (RAIZ)</span>'}
                         </td>
-                        <td><small>${s.PROGRAM}</small></td>
+                        <td><small>${escapeHtml(s.PROGRAM ?? '')}</small></td>
                         <td class="col-action">${userRole === 'dba'
-                            ? `<button class="btn-primary" style="background: var(--accent-red); padding: 5px 10px;" onclick="killSession(${s.SID}, ${s.SERIAL})">KILL</button>`
+                            ? `<button class="btn-primary" style="background: var(--accent-red); padding: 5px 10px;" onclick="killSession(${Number(s.SID)}, ${Number(s.SERIAL)})">KILL</button>`
                             : '<span class="badge" style="background:#f1f5f9;color:#94a3b8">—</span>'}</td>
                     </tr>`).join('');
             }
@@ -1164,17 +1175,20 @@ async function loadLongRunningSessions() {
             body.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:2rem; color:var(--text-secondary)">Nenhuma sessão ativa de longa duração.</td></tr>`;
             return;
         }
-        body.innerHTML = data.data.map(s => `
+        body.innerHTML = data.data.map(s => {
+            const sqlId = safeSqlId(s.SQL_ID);
+            return `
             <tr>
-                <td><span class="badge badge-blue">#${s.SID},${s.SERIAL}</span></td>
-                <td><strong>${s.USERNAME || 'N/A'}</strong><br><span style="font-size:0.7rem;color:var(--text-secondary)">${s.PROGRAM || ''}</span></td>
+                <td><span class="badge badge-blue">#${Number(s.SID)},${Number(s.SERIAL)}</span></td>
+                <td><strong>${escapeHtml(s.USERNAME || 'N/A')}</strong><br><span style="font-size:0.7rem;color:var(--text-secondary)">${escapeHtml(s.PROGRAM || '')}</span></td>
                 <td><strong>${formatDuration(s.SECONDS_RUNNING)}</strong></td>
-                <td><small>${s.EVENT || '-'}</small></td>
-                <td>${s.SQL_ID ? `<span class="badge badge-blue" style="cursor:pointer" onclick="showSqlDetails('${s.SQL_ID}')">${s.SQL_ID}</span>` : '-'}</td>
+                <td><small>${escapeHtml(s.EVENT || '-')}</small></td>
+                <td>${sqlId ? `<span class="badge badge-blue" style="cursor:pointer" onclick="showSqlDetails('${sqlId}')">${sqlId}</span>` : '-'}</td>
                 <td class="col-action">${userRole === 'dba'
-                    ? `<button class="btn-primary" style="background: var(--accent-red); padding: 5px 10px;" onclick="killSession(${s.SID}, ${s.SERIAL})">KILL</button>`
+                    ? `<button class="btn-primary" style="background: var(--accent-red); padding: 5px 10px;" onclick="killSession(${Number(s.SID)}, ${Number(s.SERIAL)})">KILL</button>`
                     : '<span class="badge" style="background:#f1f5f9;color:#94a3b8">—</span>'}</td>
-            </tr>`).join('');
+            </tr>`;
+        }).join('');
     } catch (err) { console.warn('Long-running load fail:', err); }
 }
 

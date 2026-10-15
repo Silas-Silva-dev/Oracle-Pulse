@@ -50,15 +50,19 @@ function badRequest(message) {
 
 /** GET HTTPS com redirecionamento e User-Agent (GitHub exige UA). */
 function httpsGet(url, opts = {}) {
-    const { headers = {}, redirects = 5, timeoutMs = 20000 } = opts;
+    const { headers = {}, redirects = 5, timeoutMs = 20000, allowHost = null } = opts;
     return new Promise((resolve, reject) => {
         let req;
         try {
             req = https.get(url, { headers: { 'User-Agent': UA, Accept: 'application/vnd.github+json', ...headers } }, (res) => {
                 if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
                     res.resume();
-                    const next = new URL(res.headers.location, url).toString();
-                    return resolve(httpsGet(next, { headers, redirects: redirects - 1, timeoutMs }));
+                    const next = new URL(res.headers.location, url);
+                    // O redirecionamento também precisa ficar no GitHub (e em HTTPS).
+                    if (allowHost && (next.protocol !== 'https:' || !allowHost.test(next.hostname))) {
+                        return reject(badRequest('O download foi redirecionado para fora do GitHub: atualização recusada.'));
+                    }
+                    return resolve(httpsGet(next.toString(), { headers, redirects: redirects - 1, timeoutMs, allowHost }));
                 }
                 const chunks = [];
                 res.on('data', (c) => chunks.push(c));
@@ -131,14 +135,32 @@ function sha256File(file) {
     return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-/** Baixa uma URL (com redirecionamento) para um arquivo. */
+/** Baixa uma URL (com redirecionamento) para um arquivo NOVO (falha se já existir). */
 async function downloadTo(url, dest) {
     const u = new URL(url);
-    if (!ALLOWED_HOST.test(u.hostname)) throw badRequest('URL de download não confiável (fora do GitHub).');
-    const r = await httpsGet(url, { headers: { Accept: 'application/octet-stream' }, timeoutMs: 120000 });
+    if (u.protocol !== 'https:' || !ALLOWED_HOST.test(u.hostname)) throw badRequest('URL de download não confiável (fora do GitHub).');
+    const r = await httpsGet(url, { headers: { Accept: 'application/octet-stream' }, timeoutMs: 120000, allowHost: ALLOWED_HOST });
     if (r.status !== 200) throw new Error(`Falha ao baixar o instalador (HTTP ${r.status}).`);
-    fs.writeFileSync(dest, r.body);
+    fs.writeFileSync(dest, r.body, { flag: 'wx' });
     return dest;
+}
+
+/**
+ * A senha do dia vai para a linha de comando do instalador e para um .cmd que roda
+ * como SYSTEM: só ASCII imprimível e nada que o cmd.exe interprete mesmo entre
+ * aspas (" fecha a aspa; % e ! expandem variáveis; ^ & | < > encadeiam comandos).
+ */
+function validInstallPassword(pwd) {
+    return /^[\x20-\x7e]{1,128}$/.test(pwd) && !/["%!^&|<>]/.test(pwd);
+}
+
+/**
+ * Pasta temporária PRIVADA para o instalador e o .cmd (nome aleatório, criada pelo
+ * serviço): em %TEMP% compartilhado, um nome previsível podia ser criado antes por
+ * outro usuário da máquina e trocado entre a conferência e a execução como SYSTEM.
+ */
+function makeUpdateDir() {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'OraclePulse-Update-'));
 }
 
 /**
@@ -149,6 +171,7 @@ async function startUpdate({ installPassword } = {}) {
     if (!config.update.enabled) throw badRequest('Atualização desativada por configuração.');
     const pwd = String(installPassword || '').trim();
     if (!pwd) throw badRequest('Informe a senha de instalação:');
+    if (!validInstallPassword(pwd)) throw badRequest('Senha de instalação com caracteres inválidos. Confira o código do dia e tente de novo.');
 
     if (config.demoMode) return { started: false, demo: true, message: 'Simulação: em uma instalação real, o instalador seria baixado e executado agora.' };
 
@@ -159,21 +182,22 @@ async function startUpdate({ installPassword } = {}) {
     const info = await checkLatest();
     if (!info.newer) throw badRequest('Você já está na versão mais recente.');
     if (!info.asset || !info.asset.url) throw badRequest('A versão mais recente não tem o instalador (.exe) anexado no GitHub Releases.');
+    // Sem o SHA-256 publicado não há como conferir o que vai rodar como SYSTEM: recusa.
+    if (!info.sha256) throw badRequest('A versão publicada não traz o SHA-256 do instalador nas notas: atualização recusada (sem como conferir a integridade). Atualize manualmente com o instalador oficial.');
 
-    const tmp = path.join(os.tmpdir(), `OraclePulse-Update-${info.latest}-${Date.now()}.exe`);
+    const dir = makeUpdateDir();
+    const tmp = path.join(dir, `OraclePulse-Setup-${String(info.latest).replace(/[^\w.-]/g, '')}.exe`);
     await downloadTo(info.asset.url, tmp);
 
-    if (info.sha256) {
-        const got = sha256File(tmp);
-        if (got !== info.sha256) {
-            try { fs.unlinkSync(tmp); } catch { /* ignore */ }
-            throw badRequest('Verificação de integridade falhou: o SHA-256 do download não bate com o publicado na release.');
-        }
+    const got = sha256File(tmp);
+    if (got !== info.sha256) {
+        try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+        throw badRequest('Verificação de integridade falhou: o SHA-256 do download não bate com o publicado na release.');
     }
 
     // Confere a senha do dia ANTES de agendar: o instalador baixado valida a senha
     // (modo /VERIFYONLY) e devolve OK/BAD. Assim o usuário tem retorno imediato.
-    const verdict = verifyInstallPassword(tmp, pwd);
+    const verdict = verifyInstallPassword(tmp, pwd, dir);
     if (verdict === 'BAD') {
         try { fs.unlinkSync(tmp); } catch { /* ignore */ }
         throw badRequest('Senha de instalação incorreta. Confira o código do dia no aplicativo "Oracle Pulse" e tente de novo.');
@@ -181,9 +205,9 @@ async function startUpdate({ installPassword } = {}) {
     // 'OK' segue; '' ou 'NOGATE' (verificação indisponível): segue — o próprio
     // instalador ainda confere a senha antes de parar o serviço.
 
-    const launched = launchUpdater(tmp, ROOT, pwd);
+    const launched = launchUpdater(tmp, ROOT, pwd, dir);
     logger.warn(`Atualização iniciada para a versão ${info.latest} (instalador: ${tmp}, tarefa: ${launched.taskName}).`);
-    return { started: true, version: info.latest, verified: !!info.sha256, log: launched.log };
+    return { started: true, version: info.latest, verified: true, log: launched.log };
 }
 
 /**
@@ -206,8 +230,8 @@ async function startUpdate({ installPassword } = {}) {
  * num arquivo e sai SEM instalar nada. Retorna 'OK', 'BAD', 'NOGATE' ou '' (quando
  * não foi possível verificar — aí o fluxo segue e o próprio instalador confere).
  */
-function verifyInstallPassword(installerExe, pwd) {
-    const out = path.join(os.tmpdir(), `OraclePulse-Verify-${Date.now()}.txt`);
+function verifyInstallPassword(installerExe, pwd, dir = os.tmpdir()) {
+    const out = path.join(dir, `OraclePulse-Verify-${Date.now()}.txt`);
     try { if (fs.existsSync(out)) fs.unlinkSync(out); } catch { /* ignore */ }
     try {
         spawnSync(installerExe, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/VERIFYONLY=1', `/INSTALLPWD=${pwd}`, `/VERIFYOUT=${out}`], { windowsHide: true, timeout: 120000 });
@@ -218,19 +242,21 @@ function verifyInstallPassword(installerExe, pwd) {
     return res;
 }
 
-function launchUpdater(installerExe, installDir, pwd) {
+function launchUpdater(installerExe, installDir, pwd, dir = os.tmpdir()) {
+    if (!validInstallPassword(pwd)) throw badRequest('Senha de instalação com caracteres inválidos.');
     const stamp = Date.now();
-    const log = path.join(os.tmpdir(), `OraclePulse-Update-${stamp}.log`);
-    const cmdFile = path.join(os.tmpdir(), `OraclePulse-Update-${stamp}.cmd`);
+    const log = path.join(dir, `OraclePulse-Update-${stamp}.log`);
+    const cmdFile = path.join(dir, `OraclePulse-Update-${stamp}.cmd`);
     const taskName = `OraclePulseUpdate_${stamp}`;
     const cmd = [
         '@echo off',
         'ping -n 4 127.0.0.1 >nul',   // ~3 s: deixa a resposta HTTP chegar ao navegador antes de parar o serviço
         `"${installerExe}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/INSTALLPWD=${pwd}" /KEEPCONFIG=1 "/DIR=${installDir}" "/LOG=${log}"`,
+        `del "${installerExe}" >nul 2>&1`, // o instalador baixado não fica para trás
         `schtasks /Delete /TN "${taskName}" /F >nul 2>&1`,
         'del "%~f0" >nul 2>&1',       // o .cmd se apaga
     ].join('\r\n') + '\r\n';
-    fs.writeFileSync(cmdFile, cmd, { encoding: 'latin1' }); // code page padrão do cmd.exe
+    fs.writeFileSync(cmdFile, cmd, { encoding: 'latin1', flag: 'wx' }); // code page padrão do cmd.exe; arquivo novo
 
     const create = spawnSync('schtasks', ['/Create', '/TN', taskName, '/TR', `"${cmdFile}"`, '/SC', 'ONCE', '/ST', '00:00', '/RU', 'SYSTEM', '/RL', 'HIGHEST', '/F'], { windowsHide: true, encoding: 'utf8' });
     if (create.status !== 0) {
@@ -273,4 +299,4 @@ function checkLatestPublic(info) {
     };
 }
 
-module.exports = { about, checkLatest, checkLatestPublic, startUpdate, launchUpdater, verifyInstallPassword, currentVersion, compareVersions, isInstalledService, extractSha256, pickAsset };
+module.exports = { about, checkLatest, checkLatestPublic, startUpdate, launchUpdater, verifyInstallPassword, currentVersion, compareVersions, isInstalledService, extractSha256, pickAsset, validInstallPassword, makeUpdateDir };

@@ -37,7 +37,7 @@ function safeEqualHex(a, b) {
  *   - "<sha256Hex>"                 (legado, compatibilidade)
  */
 function verifyPassword(password, storedHash) {
-    if (!storedHash) return false;
+    if (!storedHash || typeof password !== 'string') return false;
 
     if (storedHash.startsWith('scrypt$')) {
         const [, saltHex, hashHex] = storedHash.split('$');
@@ -51,19 +51,32 @@ function verifyPassword(password, storedHash) {
     return safeEqualHex(sha, storedHash);
 }
 
-/** Resolve qual conta/role corresponde às credenciais, ou null. */
+/** Compara dois textos em tempo constante (resumos SHA-256 de mesmo tamanho). */
+function safeEqualStr(a, b) {
+    const ha = crypto.createHash('sha256').update(String(a)).digest();
+    const hb = crypto.createHash('sha256').update(String(b)).digest();
+    return crypto.timingSafeEqual(ha, hb);
+}
+
+/**
+ * Resolve qual conta/role corresponde às credenciais, ou null.
+ * O hash de TODAS as contas configuradas é sempre calculado (o usuário confira ou
+ * não): o tempo de resposta não revela se um nome de usuário existe.
+ */
 function resolveRole(user, password) {
-    if (user === config.auth.user && verifyPassword(password, config.auth.passHash)) {
-        return 'dba';
+    if (typeof user !== 'string' || typeof password !== 'string') return null;
+    const accounts = [
+        [config.auth.user, config.auth.passHash, 'dba'],
+        [config.auth.viewerUser, config.auth.viewerPassHash, 'viewer'],
+    ];
+    let role = null;
+    for (const [name, hash, r] of accounts) {
+        if (!name || !hash) continue;
+        const userOk = safeEqualStr(user, name);
+        const passOk = verifyPassword(password, hash);
+        if (userOk && passOk && !role) role = r;
     }
-    if (
-        config.auth.viewerUser &&
-        user === config.auth.viewerUser &&
-        verifyPassword(password, config.auth.viewerPassHash)
-    ) {
-        return 'viewer';
-    }
-    return null;
+    return role;
 }
 
 /** Cria e registra um novo token de sessão. */

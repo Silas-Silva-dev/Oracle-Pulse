@@ -1,8 +1,19 @@
 node_modules
 npm-debug.log
 .env
-.env.local
+.env.*
+!.env.example
+*.env
 logs
 Arquivos/*.msi
+Arquivos/*.exe
 .git
 .gitignore
+.claude
+.vscode
+.idea
+
+# Instalador Windows: não pertence à imagem e inclui o gerador/algoritmo da
+# senha de instalação (segredo) quando presente na máquina de build.
+installer
+test/installPassword.test.js

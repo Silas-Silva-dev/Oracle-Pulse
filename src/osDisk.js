@@ -13,6 +13,8 @@
  */
 const os = require('os');
 const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { config } = require('./config');
 const { runQuery } = require('./db');
@@ -151,6 +153,71 @@ function parseWinMem(stdout) {
     }
 }
 
+// ==========================================================================
+// Verificação da chave do servidor SSH (anti man-in-the-middle)
+// Sem ela, quem se colocar no caminho da rede (ARP/DNS spoofing) se passa pelo
+// servidor e recebe a senha do SSH e a senha do SYS (que vai pelo stdin).
+// ==========================================================================
+
+/** Fingerprint no formato do OpenSSH (ssh-keygen -lf): "SHA256:<base64 sem '='>". */
+function sshFingerprint(keyBlob) {
+    return 'SHA256:' + crypto.createHash('sha256').update(keyBlob).digest('base64').replace(/=+$/, '');
+}
+
+/** Tipo da chave, lido do próprio blob (ex.: "ssh-ed25519"); '' se ilegível. */
+function sshKeyType(keyBlob) {
+    try {
+        const len = keyBlob.readUInt32BE(0);
+        return len > 0 && len < 64 ? keyBlob.toString('ascii', 4, 4 + len) : '';
+    } catch {
+        return '';
+    }
+}
+
+/** SSH_HOST_FINGERPRINT (separados por vírgula/espaço), normalizados para "SHA256:...". */
+function pinnedFingerprints(raw = config.ssh.hostFingerprint) {
+    return String(raw || '').split(/[\s,;]+/).filter(Boolean)
+        .map((f) => 'SHA256:' + f.replace(/^SHA256:/i, '').replace(/=+$/, ''));
+}
+
+const KNOWN_HOSTS_FILE = () => path.join(config.paths.logs, 'ssh-known-hosts.json');
+
+function readKnownHosts(file) {
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch { return {}; }
+}
+
+/**
+ * A chave apresentada pelo servidor é confiável?
+ *  - com SSH_HOST_FINGERPRINT: só os fingerprints configurados (pinning);
+ *  - sem ele, TOFU: a chave da 1ª conexão é registrada (logs/ssh-known-hosts.json)
+ *    e, dali em diante, qualquer chave diferente é RECUSADA. Troca legítima (servidor
+ *    reinstalado): apague a entrada do arquivo ou defina SSH_HOST_FINGERPRINT.
+ * @returns {{ ok: boolean, fingerprint: string, keyType: string, expected: string[], source: string, firstUse?: boolean }}
+ */
+function checkHostKey(keyBlob, { host = config.ssh.host, port = config.ssh.port, pinned = pinnedFingerprints(), file = KNOWN_HOSTS_FILE() } = {}) {
+    const fingerprint = sshFingerprint(keyBlob);
+    const keyType = sshKeyType(keyBlob);
+    if (pinned.length) {
+        return { ok: pinned.includes(fingerprint), fingerprint, keyType, expected: pinned, source: 'SSH_HOST_FINGERPRINT' };
+    }
+    const id = `${host}:${port}`;
+    const known = readKnownHosts(file);
+    const entry = known[id];
+    if (entry && entry.fingerprint) {
+        return { ok: entry.fingerprint === fingerprint, fingerprint, keyType, expected: [entry.fingerprint], source: file };
+    }
+    known[id] = { fingerprint, keyType, firstSeen: new Date().toISOString() };
+    try {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        const tmp = `${file}.tmp-${process.pid}`;
+        fs.writeFileSync(tmp, JSON.stringify(known, null, 2));
+        fs.renameSync(tmp, file);
+    } catch (err) {
+        logger.warn(`SSH: não foi possível registrar a chave do servidor em ${file}: ${err.message}`);
+    }
+    return { ok: true, fingerprint, keyType, expected: [], source: file, firstUse: true };
+}
+
 /**
  * Abre a conexão SSH com autenticação robusta:
  *  - Funciona com o método SSH 'password' nativo E com keyboard-interactive (PAM)
@@ -174,6 +241,7 @@ async function connectSsh() {
         methodsOffered: [],      // métodos de auth que o servidor anunciou
         kbPrompts: [],           // prompts do keyboard-interactive (texto + echo)
         kbInvoked: false,
+        hostKey: null,           // resultado da verificação da chave do servidor
     };
 
     const opts = {
@@ -183,6 +251,16 @@ async function connectSsh() {
         readyTimeout: 20000, // falha rápido em vez de pendurar
         keepaliveInterval: 20000, // detecta conexão morta (a compartilhada fica aberta)
         keepaliveCountMax: 3,
+        // Confere a chave do servidor ANTES de enviar qualquer credencial.
+        hostVerifier: (keyBlob) => {
+            const v = checkHostKey(keyBlob);
+            diag.hostKey = v;
+            if (v.firstUse) {
+                logger.warn(`SSH: chave do servidor ${config.ssh.host}:${config.ssh.port} registrada no primeiro uso ` +
+                    `(${v.keyType} ${v.fingerprint}). Confira com "ssh-keygen -lf" no servidor e fixe-a no .env: SSH_HOST_FINGERPRINT=${v.fingerprint}`);
+            }
+            return v.ok;
+        },
     };
 
     // Captura linhas de debug do ssh2 relevantes para autenticação (sempre,
@@ -261,11 +339,25 @@ function isSshNetworkError(err) {
 const SSH_WINDOWS_HINT = 'Se o servidor do banco é Windows: ative o OpenSSH Server nele (porta 22 liberada no firewall) ' +
     'ou instale o Oracle Pulse no próprio servidor do banco, que lê disco e memória sem SSH.';
 
+/** A conexão foi recusada porque a chave do servidor não confere? */
+function isHostKeyRejected(err) {
+    return !!(err && err.diag && err.diag.hostKey && !err.diag.hostKey.ok);
+}
+
 function logSshDiagnostics(err) {
     const d = err.diag || {};
     logger.error('========== DIAGNÓSTICO SSH ==========');
     logger.error(`Erro: ${err.message}${err.level ? ` (level=${err.level})` : ''}`);
     logger.error(`Host: ${config.ssh.host}:${config.ssh.port}  |  Usuário: "${d.username}"`);
+    if (isHostKeyRejected(err)) {
+        logger.error(`→ CHAVE DO SERVIDOR NÃO CONFERE: recebida ${d.hostKey.keyType} ${d.hostKey.fingerprint}; ` +
+            `esperada ${d.hostKey.expected.join(' ou ')} (${d.hostKey.source}). Conexão recusada SEM enviar senha.`);
+        logger.error('→ Pode ser um ataque man-in-the-middle. Se o servidor foi reinstalado ou trocou de chave, confira o ' +
+            'fingerprint no próprio servidor (ssh-keygen -lf /etc/ssh/ssh_host_*_key.pub) e atualize SSH_HOST_FINGERPRINT ' +
+            '(ou apague a entrada em logs/ssh-known-hosts.json).');
+        logger.error('=======================================================');
+        return;
+    }
     if (isSshNetworkError(err)) {
         // Sem conexão não houve autenticação: dicas de senha/chave só confundiriam.
         if (/ECONNREFUSED/i.test(err.message)) {
@@ -282,10 +374,13 @@ function logSshDiagnostics(err) {
     logger.error(`Método tentado: ${d.method}`);
 
     if (d.method === 'password') {
-        logger.error(`Senha: comprimento=${d.passwordLen}` +
+        // O comprimento da senha ajuda quem tenta adivinhá-la e este log é legível por
+        // outros usuários da máquina: só aparece com SSH_DEBUG=true (diagnóstico pontual).
+        const sshDebug = String(process.env.SSH_DEBUG).toLowerCase() === 'true';
+        logger.error(`Senha: ${sshDebug ? `comprimento=${d.passwordLen}` : 'configurada (comprimento oculto; SSH_DEBUG=true mostra)'}` +
             (d.passwordEdgeWhitespace ? '  ⚠️ contém espaço/quebra de linha nas bordas (verifique aspas no .env)' : ''));
-        logger.error('⚠️ Confira se o comprimento acima bate com a senha real. O .env trunca a senha no caractere "#" ' +
-            'e em espaços quando ela NÃO está entre aspas. Se a senha tem # ou espaço, use: SSH_PASSWORD="suaSenha#aqui".');
+        logger.error('⚠️ O .env trunca a senha no caractere "#" e em espaços quando ela NÃO está entre aspas. ' +
+            'Se a senha tem # ou espaço, use: SSH_PASSWORD="suaSenha#aqui".');
         if (d.kbInvoked) {
             logger.error('Servidor usou keyboard-interactive (PAM). Prompts recebidos: ' +
                 JSON.stringify(d.kbPrompts));
@@ -316,6 +411,11 @@ function logSshDiagnostics(err) {
 /** Traduz erros de SSH em mensagens acionáveis para o usuário. */
 function mapSshError(err) {
     const raw = (err && err.message) || '';
+    if (isHostKeyRejected(err)) {
+        return `A chave do servidor SSH ${config.ssh.host}:${config.ssh.port} não confere com a registrada ` +
+            '(possível ataque man-in-the-middle ou servidor reinstalado): a conexão foi recusada sem enviar senha. ' +
+            'Veja o diagnóstico no log do painel antes de aceitar a nova chave.';
+    }
     if (err?.level === 'client-authentication' || /authentication methods failed/i.test(raw)) {
         return 'Falha de autenticação SSH. Verifique usuário/senha e se o servidor permite login por senha ' +
             '(PasswordAuthentication / KbdInteractiveAuthentication). Se o servidor exige chave, configure ' +
@@ -677,4 +777,5 @@ module.exports = {
     readDiskUsage, getOsMemory, detectServerOs, execOnServer, closeSsh, psEncoded, cleanPsClixml,
     // expostos para teste/diagnóstico (builders puros):
     winVolumesCommand, dfByDirCommand, winMemCommand,
+    sshFingerprint, sshKeyType, pinnedFingerprints, checkHostKey, mapSshError,
 };

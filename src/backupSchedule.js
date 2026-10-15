@@ -663,6 +663,25 @@ function demoStatuses(schedule) {
 
 const LOG_GONE = 'O log desta execução não existe mais (foi apagado na limpeza de logs). A próxima execução gera um novo.';
 
+/**
+ * O caminho de log vem do arquivo de status NO SERVIDOR (gravável pelo dono do
+ * Oracle) e é lido via SSH, possivelmente como root: só aceita exatamente o que o
+ * run-job.sh grava — <base>/logs/<tarefa>_<AAAAMMDD_HHMMSS>.log —, sem "..".
+ */
+function isSafeLinuxLogPath(logPath, base) {
+    const b = String(base || '');
+    if (!/^\/[\w./-]+$/.test(b) || b.split('/').includes('..')) return false;
+    const esc = b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^${esc}/logs/(?:${JOBS.join('|')})_\\d{8}_\\d{6}\\.log$`).test(String(logPath || ''));
+}
+
+/** Log do Windows: arquivo .log DENTRO de logs\backup (sem sair da pasta por ".."). */
+function isSafeWindowsLogPath(logPath, dir = WIN_LOG_DIR()) {
+    const file = path.resolve(String(logPath || ''));
+    const rel = path.relative(path.resolve(dir), file);
+    return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel) && /\.log$/i.test(file);
+}
+
 /** Últimas linhas do log de uma execução. */
 async function readLog(schedule, job) {
     if (!JOBS.includes(job)) throw new ScheduleError('Tarefa desconhecida.');
@@ -673,14 +692,14 @@ async function readLog(schedule, job) {
         return `Recovery Manager: Release 19.0.0.0.0\nconnected to target database: ORCL (DBID=1612345678)\nusing target database control file instead of recovery catalog\n\nRMAN> ${rmanLines(job, schedule).join('\nRMAN> ')}\n\nStarting backup at ...\nFinished backup at ...\nDeleted 12 objects\nRecovery Manager complete.`;
     }
     if (schedule.installed.os === 'windows') {
+        if (!isSafeWindowsLogPath(st.log)) throw new ScheduleError('Log fora da pasta de backups.');
         const file = path.resolve(st.log);
-        if (!file.startsWith(path.resolve(WIN_LOG_DIR()))) throw new ScheduleError('Log fora da pasta de backups.');
         if (!fs.existsSync(file)) throw new ScheduleError(LOG_GONE, 404);
         const text = fs.readFileSync(file, 'utf8');
         return text.slice(-40000);
     }
     const base = schedule.installed.base || LINUX_ROOT_BASE;
-    if (!st.log.startsWith(`${base}/logs/`) || !/^[\w./-]+$/.test(st.log)) throw new ScheduleError('Caminho de log inválido.');
+    if (!isSafeLinuxLogPath(st.log, base)) throw new ScheduleError('Caminho de log inválido.');
     const r = await execOnServer(`tail -c 40000 '${st.log}'`);
     if (r.code !== 0 && /No such file/i.test(r.stderr || '')) throw new ScheduleError(LOG_GONE, 404);
     if (r.code !== 0) throw new ScheduleError(`Não foi possível ler o log: ${(r.stderr || '').trim().slice(0, 200)}`, 500);
@@ -724,5 +743,5 @@ module.exports = {
     buildWindowsInstallScript, buildWindowsRemoveScript, buildWindowsStatusScript,
     parseMarkers, nextRun, evaluateJobs,
     install, remove, readStatuses, readLog, runNow, preview, context,
-    WIN_LOG_DIR,
+    WIN_LOG_DIR, isSafeLinuxLogPath, isSafeWindowsLogPath,
 };
