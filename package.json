@@ -1,6 +1,6 @@
 ﻿{
   "name": "oracle-pulse",
-  "version": "2.3.4",
+  "version": "2.3.5",
   "description": "Painel de monitoramento Oracle (performance, sessÃµes, storage, backup)",
   "main": "server.js",
   "scripts": {

@@ -153,6 +153,8 @@ aside {
     z-index: 100;
     display: flex;
     flex-direction: column;
+    /* A rolagem acontece dentro da lista (.nav-menu); logo e "Sair" ficam fixos. */
+    overflow: hidden;
 }
 
 .logo {
@@ -166,11 +168,31 @@ aside {
     letter-spacing: -0.5px;
 }
 
-.nav-menu {
-    list-style: none;
-    flex: 1;
+/* O <nav> ocupa a altura que sobra entre o logo e a borda inferior. */
+nav {
+    flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     flex-direction: column;
+}
+
+.nav-menu {
+    list-style: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    /* Em monitores baixos a lista rola aqui dentro, sem esconder o "Sair". */
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Rodapé fixo da barra lateral: o "Sair" aparece em qualquer resolução. */
+.nav-footer {
+    flex: 0 0 auto;
+    padding-top: 0.75rem;
+    margin-top: 0.25rem;
+    border-top: 1px solid var(--border-color);
 }
 
 .nav-item {
@@ -364,6 +386,18 @@ header {
 .table-container {
     width: 100%;
     overflow-x: auto;
+    /* Listas de registros: mostra ~5 linhas e rola o restante na vertical.
+       Calibrado pela linha mais alta (badge + botão, ex.: histórico RMAN). */
+    max-height: var(--list-max-h, 23rem);
+    overflow-y: auto;
+}
+
+/* Cabeçalho fixo ao rolar qualquer lista de registros */
+.table-container thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-card);
+    z-index: 2;
 }
 
 table {
@@ -585,18 +619,8 @@ canvas {
     transform: translateY(-1px);
 }
 
-/* Trilha de auditoria: rolagem vertical com cabeçalho fixo */
-.audit-scroll {
-    max-height: 360px;
-    overflow-y: auto;
-}
-
-.audit-scroll thead th {
-    position: sticky;
-    top: 0;
-    background: var(--bg-card);
-    z-index: 1;
-}
+/* Trilha de auditoria: a rolagem vertical e o cabeçalho fixo agora vêm da
+   regra global de .table-container (mostra ~5 linhas e rola o restante). */
 
 .notif-bell-btn.has-critical {
     color: var(--accent-red);
