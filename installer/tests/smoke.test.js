@@ -183,7 +183,7 @@ test('modo DEMO: painel, login e APIs principais', { skip: SKIP, timeout: 120000
 
         // Página Recuperação e relógio x NTP (DEMO).
         assert.match(homeHtml, /data-section="recovery"/);
-        assert.match(homeHtml, /<script src="recovery\.js"><\/script>/);
+        assert.match(homeHtml, /<script src="recovery\.js(\?v=[\w.]+)?"><\/script>/);
         assert.match(homeHtml, /id="clock-sync-btn"/);
         for (const asset of ['/recovery.js', '/recovery.css']) assert.equal((await fetch(base + asset)).status, 200, asset);
         const diag = await api(base, 'GET', '/api/recovery/diagnosis?refresh=1', { token });

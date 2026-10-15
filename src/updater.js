@@ -6,8 +6,9 @@
  * - startUpdate(): SÓ na instalação Windows (serviço). Baixa o instalador oficial
  *   anexado à Release, confere o SHA-256 (se publicado nas notas), e o executa em
  *   modo silencioso mantendo o .env (/KEEPCONFIG=1). O instalador para o serviço,
- *   troca os arquivos e reinicia — por isso ele é lançado "destacado" (sobrevive ao
- *   fim do processo do painel).
+ *   troca os arquivos e reinicia — por isso ele é lançado pelo Agendador de Tarefas
+ *   (via launchUpdater), FORA do job object do serviço, para sobreviver à parada do
+ *   serviço durante a troca de arquivos.
  *
  * Segurança: rota só-DBA e auditada; download apenas do host do GitHub e do
  * repositório configurado; exige a senha de instalação do dia (o instalador a
@@ -18,7 +19,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { spawnSync } = require('child_process');
 const { config } = require('./config');
 const logger = require('./logger');
 
@@ -170,13 +171,49 @@ async function startUpdate({ installPassword } = {}) {
         }
     }
 
-    const log = path.join(os.tmpdir(), `OraclePulse-Update-${info.latest}-${Date.now()}.log`);
-    const args = ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', `/INSTALLPWD=${pwd}`, '/KEEPCONFIG=1', `/DIR=${ROOT}`, `/LOG=${log}`];
-    // Destacado: o instalador para o serviço (encerra o painel) e segue sozinho.
-    const child = spawn(tmp, args, { detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
-    logger.warn(`Atualização iniciada para a versão ${info.latest} (instalador: ${tmp}).`);
-    return { started: true, version: info.latest, verified: !!info.sha256, log };
+    const launched = launchUpdater(tmp, ROOT, pwd);
+    logger.warn(`Atualização iniciada para a versão ${info.latest} (instalador: ${tmp}, tarefa: ${launched.taskName}).`);
+    return { started: true, version: info.latest, verified: !!info.sha256, log: launched.log };
+}
+
+/**
+ * Lança o instalador por uma via INDEPENDENTE do serviço: o Agendador de Tarefas.
+ *
+ * Por que não `spawn(..., {detached:true})`: o painel roda como serviço do Windows
+ * (WinSW). Um processo filho, mesmo "detached", fica no MESMO job object do serviço;
+ * quando o instalador manda parar o serviço, o Windows encerra o job inteiro e mata
+ * o próprio instalador — a atualização nunca conclui (foi o que acontecia). Uma
+ * tarefa agendada roda no processo do Agendador, fora do nosso job, e sobrevive.
+ *
+ * Fluxo: grava um .cmd (espera a resposta HTTP voltar, roda o instalador silencioso,
+ * se apaga), cria uma tarefa ONCE como SYSTEM e dispara com /Run. O instalador para
+ * o serviço, troca os arquivos mantendo o .env (/KEEPCONFIG) e reinicia o serviço.
+ * @returns {{log:string, taskName:string, cmdFile:string}}
+ */
+function launchUpdater(installerExe, installDir, pwd) {
+    const stamp = Date.now();
+    const log = path.join(os.tmpdir(), `OraclePulse-Update-${stamp}.log`);
+    const cmdFile = path.join(os.tmpdir(), `OraclePulse-Update-${stamp}.cmd`);
+    const taskName = `OraclePulseUpdate_${stamp}`;
+    const cmd = [
+        '@echo off',
+        'ping -n 4 127.0.0.1 >nul',   // ~3 s: deixa a resposta HTTP chegar ao navegador antes de parar o serviço
+        `"${installerExe}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/INSTALLPWD=${pwd}" /KEEPCONFIG=1 "/DIR=${installDir}" "/LOG=${log}"`,
+        `schtasks /Delete /TN "${taskName}" /F >nul 2>&1`,
+        'del "%~f0" >nul 2>&1',       // o .cmd se apaga
+    ].join('\r\n') + '\r\n';
+    fs.writeFileSync(cmdFile, cmd, { encoding: 'latin1' }); // code page padrão do cmd.exe
+
+    const create = spawnSync('schtasks', ['/Create', '/TN', taskName, '/TR', `"${cmdFile}"`, '/SC', 'ONCE', '/ST', '00:00', '/RU', 'SYSTEM', '/RL', 'HIGHEST', '/F'], { windowsHide: true, encoding: 'utf8' });
+    if (create.status !== 0) {
+        try { fs.unlinkSync(cmdFile); } catch { /* ignore */ }
+        throw new Error('não foi possível agendar a atualização: ' + String(create.stderr || create.stdout || create.error || '').trim().slice(0, 200));
+    }
+    const run = spawnSync('schtasks', ['/Run', '/TN', taskName], { windowsHide: true, encoding: 'utf8' });
+    if (run.status !== 0) {
+        throw new Error('não foi possível iniciar a atualização agendada: ' + String(run.stderr || run.stdout || '').trim().slice(0, 200));
+    }
+    return { log, taskName, cmdFile };
 }
 
 function about() {
@@ -208,4 +245,4 @@ function checkLatestPublic(info) {
     };
 }
 
-module.exports = { about, checkLatest, checkLatestPublic, startUpdate, currentVersion, compareVersions, isInstalledService, extractSha256, pickAsset };
+module.exports = { about, checkLatest, checkLatestPublic, startUpdate, launchUpdater, currentVersion, compareVersions, isInstalledService, extractSha256, pickAsset };

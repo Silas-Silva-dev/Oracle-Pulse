@@ -1200,6 +1200,9 @@ tr.row-danger td { background: rgba(239, 68, 68, 0.05); }
 .term-output.is-error .term-meta { color: #fca5a5; }
 
 /* ===================== Sobre ===================== */
+/* Respiro entre a linha de cartões (info + atualização) e o cartão
+   "Segurança & privacidade" logo abaixo — sem isso eles ficam grudados. */
+#about .main-grid { margin-bottom: 2rem; }
 .about-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.25rem; }
 .about-logo { width: 56px; height: 56px; object-fit: contain; border-radius: 12px; }
 .about-name { margin: 0; font-size: 1.3rem; }
@@ -1211,15 +1214,21 @@ tr.row-danger td { background: rgba(239, 68, 68, 0.05); }
 .about-links { margin-top: 1.25rem; display: flex; flex-wrap: wrap; gap: 10px; }
 .about-links a { font-size: 0.8rem; color: var(--accent-blue); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
 .about-links a:hover { text-decoration: underline; }
-.about-update-status { display: flex; flex-direction: column; gap: 0.6rem; }
+.about-update-status { display: flex; flex-direction: column; gap: 0.85rem; }
 .about-update-status .form-hint { margin: 0; }
+.about-update-status > div { margin: 0; }
 .about-badge { display: inline-flex; align-items: center; gap: 7px; padding: 0.5rem 0.8rem; border-radius: 9px; font-size: 0.82rem; font-weight: 600; }
 .about-badge.is-ok { background: rgba(16,185,129,0.1); color: #047857; }
 .about-badge.is-new { background: rgba(37,99,235,0.1); color: var(--accent-blue); }
 .about-badge.is-warn { background: rgba(245,158,11,0.12); color: #b45309; }
 .about-notes-box { margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5; }
-.about-relnotes { margin-top: 0.6rem; max-height: 180px; overflow-y: auto; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 10px; padding: 0.7rem 0.85rem; font-size: 0.78rem; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary); }
-.about-update-action { margin-top: 1rem; }
-.about-pwd-row { display: flex; flex-direction: column; gap: 0.5rem; }
+.about-relnotes { margin: 0; max-height: 180px; overflow-y: auto; background: var(--bg-main); border: 1px solid var(--border-color); border-radius: 10px; padding: 0.7rem 0.85rem; font-size: 0.78rem; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary); }
+.about-update-action { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color); }
+.about-update-action:empty { margin-top: 0; padding-top: 0; border-top: 0; }
+.about-pwd-row { display: flex; flex-direction: column; gap: 0.7rem; }
+.about-pwd-row .btn-primary { margin-top: 0.15rem; }
+.about-pwd-row .form-hint { margin-top: 0.1rem; }
+#about-update-result:empty { display: none; }
+#about-update-result { margin: 0.15rem 0; }
 .about-notes { margin: 0; padding-left: 1.1rem; font-size: 0.83rem; color: var(--text-secondary); line-height: 1.6; }
 .about-notes strong { color: var(--text-primary); }
