@@ -71,3 +71,9 @@ test('startUpdate (DEMO): exige senha e devolve simulação (não executa nada)'
     assert.equal(r.started, false);
     assert.match(r.message, /Simula/i);
 });
+
+test('verifyInstallPassword: sem instalador válido, não trava e devolve string vazia', () => {
+    // Instalador inexistente: o spawn falha, nenhum arquivo é escrito -> ''.
+    const v = up.verifyInstallPassword(require('path').join(__dirname, 'nao-existe-setup.exe'), 'QUALQUER8');
+    assert.equal(v, '');
+});

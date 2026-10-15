@@ -201,6 +201,32 @@ begin
   Result := (L = '1') or (L = 'true') or (L = 'sim') or (L = 'yes');
 end;
 
+// Modo "só conferir a senha": a tela "Sobre" do painel roda o instalador BAIXADO
+// com  /VERIFYONLY=1 /INSTALLPWD=<senha> /VERIFYOUT=<arquivo>  apenas para validar
+// a senha do dia SEM instalar nada. Grava OK/BAD no arquivo e aborta. Assim o painel
+// consegue dar retorno imediato ("senha incorreta") antes de agendar a atualização.
+function InitializeSetup(): Boolean;
+var OutFile: String;
+begin
+  Result := True;
+  if HasParam('VERIFYONLY') then
+  begin
+    Result := False;   // neste modo nunca instala
+    OutFile := ParamValue('VERIFYOUT');
+    if OutFile <> '' then
+    begin
+#if defined(IK_HAS_GATE) && !defined(PREVIEW)
+      if IKAccepts(ParamValue('INSTALLPWD')) then
+        SaveStringToFile(OutFile, 'OK', False)
+      else
+        SaveStringToFile(OutFile, 'BAD', False);
+#else
+      SaveStringToFile(OutFile, 'NOGATE', False);
+#endif
+    end;
+  end;
+end;
+
 function ShowMsg(const Text: String; Typ: TMsgBoxType; Buttons, Default: Integer): Integer;
 begin
   Log('[msg] ' + Text);

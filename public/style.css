@@ -147,13 +147,14 @@ aside {
     width: var(--sidebar-width);
     background: var(--bg-sidebar);
     border-right: 1px solid var(--border-color);
-    padding: 2rem 1.5rem;
+    /* Espaçamento vertical adaptativo: encolhe em telas baixas. */
+    padding: clamp(0.85rem, 2.2vh, 2rem) 1.5rem;
     position: fixed;
     height: 100vh;
     z-index: 100;
     display: flex;
     flex-direction: column;
-    /* A rolagem acontece dentro da lista (.nav-menu); logo e "Sair" ficam fixos. */
+    /* Nada de barra de rolagem na lateral: os itens se contraem para caber. */
     overflow: hidden;
 }
 
@@ -164,8 +165,9 @@ aside {
     font-size: 1.25rem;
     font-weight: 800;
     color: var(--accent-blue);
-    margin-bottom: 3rem;
+    margin-bottom: clamp(0.9rem, 3vh, 3rem);
     letter-spacing: -0.5px;
+    flex: 0 0 auto;
 }
 
 /* O <nav> ocupa a altura que sobra entre o logo e a borda inferior. */
@@ -182,10 +184,13 @@ nav {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    /* Em monitores baixos a lista rola aqui dentro, sem esconder o "Sair". */
+    /* Safety: só rola em alturas extremas; a barra fica oculta (adaptação por contração). */
     overflow-y: auto;
     overflow-x: hidden;
+    scrollbar-width: none;        /* Firefox */
+    -ms-overflow-style: none;     /* Edge legado */
 }
+.nav-menu::-webkit-scrollbar { width: 0; height: 0; }  /* Chrome/Edge/Safari */
 
 /* Rodapé fixo da barra lateral: o "Sair" aparece em qualquer resolução. */
 .nav-footer {
@@ -199,11 +204,12 @@ nav {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 0.85rem 1rem;
+    /* Altura adaptativa: em telas baixas o item encolhe para tudo caber. */
+    padding: clamp(0.4rem, 1.35vh, 0.85rem) 1rem;
     color: var(--text-secondary);
     text-decoration: none;
     border-radius: 12px;
-    margin-bottom: 0.5rem;
+    margin-bottom: clamp(0.12rem, 0.7vh, 0.5rem);
     font-weight: 500;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     cursor: pointer;
@@ -958,8 +964,9 @@ select.form-control + input.form-control { margin-top: 0.5rem; }
 }
 
 /* ===================== Ajustes visuais gerais ===================== */
-.logo { justify-content: center; margin-bottom: 2.5rem; }
-.logo img { display: block; width: 100%; max-width: 200px; height: auto; }
+.logo { justify-content: center; margin-bottom: clamp(0.9rem, 3vh, 2.5rem); }
+/* A logo também encolhe em telas baixas, para sobrar espaço aos itens. */
+.logo img { display: block; width: 100%; max-width: 200px; height: auto; max-height: clamp(38px, 7vh, 60px); object-fit: contain; }
 .login-logo img { width: 100%; max-width: 260px; }
 
 .refresh-select {

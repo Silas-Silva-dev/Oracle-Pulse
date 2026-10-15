@@ -171,6 +171,16 @@ async function startUpdate({ installPassword } = {}) {
         }
     }
 
+    // Confere a senha do dia ANTES de agendar: o instalador baixado valida a senha
+    // (modo /VERIFYONLY) e devolve OK/BAD. Assim o usuário tem retorno imediato.
+    const verdict = verifyInstallPassword(tmp, pwd);
+    if (verdict === 'BAD') {
+        try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+        throw badRequest('Senha de instalação incorreta. Confira o código do dia no aplicativo "Oracle Pulse" e tente de novo.');
+    }
+    // 'OK' segue; '' ou 'NOGATE' (verificação indisponível): segue — o próprio
+    // instalador ainda confere a senha antes de parar o serviço.
+
     const launched = launchUpdater(tmp, ROOT, pwd);
     logger.warn(`Atualização iniciada para a versão ${info.latest} (instalador: ${tmp}, tarefa: ${launched.taskName}).`);
     return { started: true, version: info.latest, verified: !!info.sha256, log: launched.log };
@@ -190,6 +200,24 @@ async function startUpdate({ installPassword } = {}) {
  * o serviço, troca os arquivos mantendo o .env (/KEEPCONFIG) e reinicia o serviço.
  * @returns {{log:string, taskName:string, cmdFile:string}}
  */
+/**
+ * Confere a senha do dia rodando o instalador baixado em modo "só verificar"
+ * (/VERIFYONLY): ele valida a senha com o mesmo algoritmo do gate, grava OK/BAD
+ * num arquivo e sai SEM instalar nada. Retorna 'OK', 'BAD', 'NOGATE' ou '' (quando
+ * não foi possível verificar — aí o fluxo segue e o próprio instalador confere).
+ */
+function verifyInstallPassword(installerExe, pwd) {
+    const out = path.join(os.tmpdir(), `OraclePulse-Verify-${Date.now()}.txt`);
+    try { if (fs.existsSync(out)) fs.unlinkSync(out); } catch { /* ignore */ }
+    try {
+        spawnSync(installerExe, ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/VERIFYONLY=1', `/INSTALLPWD=${pwd}`, `/VERIFYOUT=${out}`], { windowsHide: true, timeout: 120000 });
+    } catch { /* o resultado é lido do arquivo, não do código de saída */ }
+    let res = '';
+    try { res = fs.readFileSync(out, 'utf8').trim().toUpperCase(); } catch { /* ignore */ }
+    try { fs.unlinkSync(out); } catch { /* ignore */ }
+    return res;
+}
+
 function launchUpdater(installerExe, installDir, pwd) {
     const stamp = Date.now();
     const log = path.join(os.tmpdir(), `OraclePulse-Update-${stamp}.log`);
@@ -245,4 +273,4 @@ function checkLatestPublic(info) {
     };
 }
 
-module.exports = { about, checkLatest, checkLatestPublic, startUpdate, launchUpdater, currentVersion, compareVersions, isInstalledService, extractSha256, pickAsset };
+module.exports = { about, checkLatest, checkLatestPublic, startUpdate, launchUpdater, verifyInstallPassword, currentVersion, compareVersions, isInstalledService, extractSha256, pickAsset };
