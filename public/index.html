@@ -7,11 +7,11 @@
     <title>Oracle Pulse | Monitoring</title>
     <link rel="icon" href="favicon.ico?v=6" sizes="16x16 24x24 32x32 48x48">
     <link rel="icon" type="image/png" sizes="192x192" href="favicon.png?v=6">
-    <link rel="stylesheet" href="style.css?v=2.3.7">
-    <link rel="stylesheet" href="recovery.css?v=2.3.7">
-    <link rel="stylesheet" href="protection.css?v=2.3.7">
-    <!-- Bibliotecas de CDN com versão FIXA e hash de integridade (SRI): se o arquivo
-         no CDN mudar, o navegador recusa (para atualizar: troque a versão E o hash). -->
+    <link rel="stylesheet" href="style.css?v=2.3.9">
+    <link rel="stylesheet" href="recovery.css?v=2.3.9">
+    <link rel="stylesheet" href="protection.css?v=2.3.9">
+    <!-- Bibliotecas de CDN com versÃ£o FIXA e hash de integridade (SRI): se o arquivo
+         no CDN mudar, o navegador recusa (para atualizar: troque a versÃ£o E o hash). -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
           integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"
@@ -29,12 +29,12 @@
             <p>Identifique-se para gerenciar o Oracle Pulse</p>
             <form id="login-form">
                 <div class="form-group">
-                    <label><i class="fas fa-user"></i> Usuário</label>
-                    <input type="text" id="login-user" placeholder="Digite seu usuário" required>
+                    <label><i class="fas fa-user"></i> UsuÃ¡rio</label>
+                    <input type="text" id="login-user" placeholder="Digite seu usuÃ¡rio" required>
                 </div>
                 <div class="form-group">
                     <label><i class="fas fa-lock"></i> Senha</label>
-                    <input type="password" id="login-pass" placeholder="••••••••" required>
+                    <input type="password" id="login-pass" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required>
                 </div>
                 <button type="submit" class="btn-primary"
                     style="width: 100%; justify-content: center; margin-top: 1rem;">
@@ -42,12 +42,12 @@
                 </button>
             </form>
             <div id="login-error" class="login-error" style="display: none;">
-                <i class="fas fa-exclamation-triangle"></i> Usuário ou senha inválidos.
+                <i class="fas fa-exclamation-triangle"></i> UsuÃ¡rio ou senha invÃ¡lidos.
             </div>
         </div>
     </div>
 
-    <!-- Barra Lateral de Navegação (Sidebar) -->
+    <!-- Barra Lateral de NavegaÃ§Ã£o (Sidebar) -->
     <aside>
         <div class="logo">
             <!-- Logo do Oracle Pulse -->
@@ -60,10 +60,10 @@
                 <li><a class="nav-item" data-section="performance"><i class="fas fa-gauge-high"></i> Performance</a>
                 </li>
                 <li><a class="nav-item" data-section="storage"><i class="fas fa-database"></i> Storage</a></li>
-                <li><a class="nav-item" data-section="sessions"><i class="fas fa-users-viewfinder"></i> Sessões</a></li>
-                <li><a class="nav-item" data-section="memory"><i class="fas fa-memory"></i> Memória</a></li>
+                <li><a class="nav-item" data-section="sessions"><i class="fas fa-users-viewfinder"></i> SessÃµes</a></li>
+                <li><a class="nav-item" data-section="memory"><i class="fas fa-memory"></i> MemÃ³ria</a></li>
                 <li><a class="nav-item" data-section="backup"><i class="fas fa-shield-halved"></i> Backup &amp; Auditoria</a></li>
-                <li><a class="nav-item" data-section="recovery"><i class="fas fa-kit-medical"></i> Recuperação <span id="nav-rec-badge" class="nav-badge" hidden></span></a></li>
+                <li><a class="nav-item" data-section="recovery"><i class="fas fa-kit-medical"></i> RecuperaÃ§Ã£o <span id="nav-rec-badge" class="nav-badge" hidden></span></a></li>
                 <li class="dba-only"><a class="nav-item" data-section="sql-terminal"><i class="fas fa-terminal"></i> Terminal SQL</a></li>
                 <li class="dba-only"><a class="nav-item" data-section="terminal"><i class="fas fa-server"></i> Terminal</a></li>
                 <li><a class="nav-item" data-section="about"><i class="fas fa-circle-info"></i> Sobre <span id="nav-update-badge" class="nav-badge" hidden></span></a></li>
@@ -76,19 +76,19 @@
         </nav>
     </aside>
 
-    <!-- Área Principal de Conteúdo -->
+    <!-- Ãrea Principal de ConteÃºdo -->
     <div class="content-wrapper">
 
         <!-- Controles fixos no canto superior direito -->
         <div id="top-controls" class="top-controls">
             <div id="notif-bell-wrapper" class="notif-bell-wrapper">
-                <button id="notif-bell-btn" class="notif-bell-btn" type="button" onclick="toggleNotifPanel(event)" aria-label="Notificações">
+                <button id="notif-bell-btn" class="notif-bell-btn" type="button" onclick="toggleNotifPanel(event)" aria-label="NotificaÃ§Ãµes">
                     <i class="fas fa-bell"></i>
                     <span id="notif-badge" class="notif-badge" style="display: none;">0</span>
                 </button>
                 <div id="notif-panel" class="notif-panel">
                     <div class="notif-panel-header">
-                        <strong><i class="fas fa-bell"></i> Notificações (<span id="notif-count-label">0</span>)</strong>
+                        <strong><i class="fas fa-bell"></i> NotificaÃ§Ãµes (<span id="notif-count-label">0</span>)</strong>
                         <button id="notif-clear-all" class="notif-clear-all" type="button" onclick="dismissAllAlerts()" disabled>Limpar todas</button>
                     </div>
                     <div id="notif-list" class="notif-list"></div>
@@ -104,10 +104,10 @@
                     <div>
                         <h1>Dashboard</h1>
                         <div id="db-health">
-                            <span class="badge badge-green"><i class="fas fa-circle"></i> INSTÂNCIA: <span
+                            <span class="badge badge-green"><i class="fas fa-circle"></i> INSTÃ‚NCIA: <span
                                     id="instance-name">...</span></span>
                             <span class="badge badge-green" style="margin-left: 10px;"><i class="fas fa-user"></i>
-                                USUÁRIO: <span id="db-user">...</span></span>
+                                USUÃRIO: <span id="db-user">...</span></span>
                             <span class="badge" id="role-badge" style="margin-left: 10px; background: rgba(100,116,139,0.15); color: var(--text-secondary);"><i class="fas fa-id-badge"></i> <span id="role-text">...</span></span>
                             <span id="last-update"
                                 style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 15px;"></span>
@@ -125,7 +125,7 @@
                         style="background: var(--bg-card); padding: 8px 15px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 10px;">
                         <label for="refresh-rate"
                             style="font-size: 0.8rem; color: var(--text-secondary); font-weight: 600; white-space: nowrap;"><i
-                                class="fas fa-clock"></i> Atualização:</label>
+                                class="fas fa-clock"></i> AtualizaÃ§Ã£o:</label>
                         <select id="refresh-rate" class="refresh-select">
                             <option value="5000" selected>5s</option>
                             <option value="10000">10s</option>
@@ -139,11 +139,11 @@
 
             <div class="stats-grid">
                 <div class="stat-card">
-                    <span class="stat-label">Sessões Ativas</span>
+                    <span class="stat-label">SessÃµes Ativas</span>
                     <div id="active-sessions-count" class="stat-value">0</div>
                 </div>
                 <div class="stat-card">
-                    <span class="stat-label">Sessões Travadas</span>
+                    <span class="stat-label">SessÃµes Travadas</span>
                     <div id="locked-sessions-count" class="stat-value">0</div>
                 </div>
                 <div class="stat-card">
@@ -170,11 +170,11 @@
                 </div>
                 <div class="card col-12">
                     <div class="card-header">
-                        <span class="card-title"><i class="fas fa-chart-line"></i> Tendência (Sessões Ativas &amp; Memória)</span>
-                        <span class="text-secondary" style="font-size: 0.8rem;">Histórico recente (amostras a cada 30s)</span>
+                        <span class="card-title"><i class="fas fa-chart-line"></i> TendÃªncia (SessÃµes Ativas &amp; MemÃ³ria)</span>
+                        <span class="text-secondary" style="font-size: 0.8rem;">HistÃ³rico recente (amostras a cada 30s)</span>
                     </div>
                     <canvas id="trendChart"></canvas>
-                    <div id="trend-empty" class="chart-empty"><i class="fas fa-hourglass-half"></i> Aguardando amostras — o histórico é coletado pelo servidor a cada 30 s.</div>
+                    <div id="trend-empty" class="chart-empty"><i class="fas fa-hourglass-half"></i> Aguardando amostras â€” o histÃ³rico Ã© coletado pelo servidor a cada 30 s.</div>
                 </div>
                 <div class="card col-12">
                     <div class="card-header">
@@ -187,9 +187,9 @@
                                 <tr>
                                     <th>SQL_ID</th>
                                     <th>CPU Time (s)</th>
-                                    <th>Execuções</th>
+                                    <th>ExecuÃ§Ãµes</th>
                                     <th>SQL Snippet</th>
-                                    <th class="col-action">Ação</th>
+                                    <th class="col-action">AÃ§Ã£o</th>
                                 </tr>
                             </thead>
                             <tbody id="top-sql-body"></tbody>
@@ -203,8 +203,8 @@
                         style="display: flex; flex-wrap: nowrap; justify-content: space-between; align-items: center; gap: 10px; overflow: hidden;">
                         <span class="card-title"
                             style="font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 0;"
-                            title="Composição da memória que o Oracle reservou (SGA é pré-alocada). Para a RAM REAL do servidor, veja a aba Memória."><i
-                                class="fas fa-memory"></i> Memória Oracle (SGA/PGA)</span>
+                            title="ComposiÃ§Ã£o da memÃ³ria que o Oracle reservou (SGA Ã© prÃ©-alocada). Para a RAM REAL do servidor, veja a aba MemÃ³ria."><i
+                                class="fas fa-memory"></i> MemÃ³ria Oracle (SGA/PGA)</span>
                         <div id="memory-stats" class="text-secondary"
                             style="font-size: 0.8rem; font-weight: 600; text-align: right; white-space: nowrap; flex-shrink: 0;">
                         </div>
@@ -224,7 +224,7 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Usuário / Programa</th>
+                                    <th>UsuÃ¡rio / Programa</th>
                                     <th>SGA (MB)</th>
                                     <th>PGA (MB)</th>
                                 </tr>
@@ -241,7 +241,7 @@
             <header>
                 <div class="header-title">
                     <h1>Performance</h1>
-                    <p>Métricas em tempo real de latência e carga do banco</p>
+                    <p>MÃ©tricas em tempo real de latÃªncia e carga do banco</p>
                 </div>
             </header>
 
@@ -259,7 +259,7 @@
                 <div class="stat-card">
                     <span class="stat-label">Response Time</span>
                     <div class="stat-value" id="resp-time">--</div>
-                    <small style="color: var(--text-secondary)">Por Transação (ms)</small>
+                    <small style="color: var(--text-secondary)">Por TransaÃ§Ã£o (ms)</small>
                 </div>
                 <div class="stat-card">
                     <span class="stat-label">Critical Event</span>
@@ -269,9 +269,9 @@
                     <small id="critical-event-class" style="color: var(--accent-red)">Nenhum</small>
                 </div>
                 <div class="stat-card stat-action dba-only">
-                    <span class="stat-label">Manutenção</span>
+                    <span class="stat-label">ManutenÃ§Ã£o</span>
                     <button class="btn-primary btn-sm" onclick="handleOptimize()" title="ANALYZE das tabelas"><i class="fas fa-wand-magic-sparkles"></i> Otimizar</button>
-                    <small>ANALYZE: estatísticas das tabelas</small>
+                    <small>ANALYZE: estatÃ­sticas das tabelas</small>
                 </div>
             </div>
 
@@ -287,9 +287,9 @@
                                 <tr>
                                     <th>SQL_ID</th>
                                     <th>CPU Time (s)</th>
-                                    <th>Execuções</th>
+                                    <th>ExecuÃ§Ãµes</th>
                                     <th>SQL Snippet</th>
-                                    <th class="col-action">Ação</th>
+                                    <th class="col-action">AÃ§Ã£o</th>
                                 </tr>
                             </thead>
                             <tbody id="top-sql-body-perf"></tbody>
@@ -299,7 +299,7 @@
                 </div>
                 <div class="card col-4">
                     <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-chart-pie"></i> Distribuição de Esperas</h3>
+                        <h3 class="card-title"><i class="fas fa-chart-pie"></i> DistribuiÃ§Ã£o de Esperas</h3>
                     </div>
                     <canvas id="waitClassesChart"></canvas>
                 </div>
@@ -317,7 +317,7 @@
             <header>
                 <div class="header-title">
                     <h1>Storage</h1>
-                    <p>Tablespaces, datafiles e espaço dos volumes do servidor</p>
+                    <p>Tablespaces, datafiles e espaÃ§o dos volumes do servidor</p>
                 </div>
                 <div class="header-actions">
                     <button class="btn-primary" style="background: var(--accent-green);" onclick="exportStorageCsv()">
@@ -332,7 +332,7 @@
             <!-- Volumes do servidor (um por disco/ponto de montagem/disk group com arquivos do banco) -->
             <div class="card col-12 section-gap">
                 <div class="card-header">
-                    <h3 class="card-title"><i class="fas fa-hdd"></i> Espaço no Servidor (SO)</h3>
+                    <h3 class="card-title"><i class="fas fa-hdd"></i> EspaÃ§o no Servidor (SO)</h3>
                     <span class="card-subtitle">Volumes com datafiles e tempfiles do banco</span>
                 </div>
                 <div id="os-volumes" class="volume-list">
@@ -360,8 +360,8 @@
                             <label class="form-label" for="resize-new-size">Novo Tamanho (MB)</label>
                             <input type="number" id="resize-new-size" class="form-control" placeholder="Ex: 27000" min="1">
                         </div>
-                        <div class="tip-box"><i class="fas fa-lightbulb"></i> Aumentar usa o espaço livre do volume do
-                            próprio arquivo (conferido antes de executar). Reduzir só é possível até o último bloco em uso —
+                        <div class="tip-box"><i class="fas fa-lightbulb"></i> Aumentar usa o espaÃ§o livre do volume do
+                            prÃ³prio arquivo (conferido antes de executar). Reduzir sÃ³ Ã© possÃ­vel atÃ© o Ãºltimo bloco em uso â€”
                             abaixo disso o Oracle retorna ORA-03297.</div>
                         <button class="btn-primary btn-block" onclick="handleResize()">
                             <i class="fas fa-save"></i> Redimensionar Datafile
@@ -380,7 +380,7 @@
                             <select id="add-ts-select" class="form-control"></select>
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="add-dir-select">Diretório de Destino</label>
+                            <label class="form-label" for="add-dir-select">DiretÃ³rio de Destino</label>
                             <select id="add-dir-select" class="form-control"></select>
                             <input type="text" id="add-dir-custom" class="form-control" hidden
                                 placeholder="Ex.: /u04/oradata/ORCL  ou  E:\ORACLE\ORADATA\ORCL">
@@ -405,8 +405,8 @@
         <section id="sessions" class="page-section">
             <header>
                 <div class="header-title">
-                    <h1>Sessões e Bloqueios</h1>
-                    <p>Locks entre sessões, sessões de longa duração e encerramento de sessões</p>
+                    <h1>SessÃµes e Bloqueios</h1>
+                    <p>Locks entre sessÃµes, sessÃµes de longa duraÃ§Ã£o e encerramento de sessÃµes</p>
                 </div>
                 <div class="header-actions">
                     <button class="btn-primary" style="background: var(--accent-green);" onclick="exportSessionsCsv()">
@@ -419,18 +419,18 @@
             </header>
             <div class="card col-12" style="margin-bottom: 2rem;">
                 <div class="card-header">
-                    <h3 class="card-title"><i class="fas fa-lock"></i> Sessões Bloqueadas (Locks)</h3>
-                    <span class="card-subtitle">Vítima, bloqueador e programa</span>
+                    <h3 class="card-title"><i class="fas fa-lock"></i> SessÃµes Bloqueadas (Locks)</h3>
+                    <span class="card-subtitle">VÃ­tima, bloqueador e programa</span>
                 </div>
                 <div class="table-container">
                     <table id="full-sessions-table">
                         <thead>
                             <tr>
                                 <th>SID / Serial#</th>
-                                <th>Vítima (Bloqueado)</th>
-                                <th>Vilão (Bloqueador)</th>
+                                <th>VÃ­tima (Bloqueado)</th>
+                                <th>VilÃ£o (Bloqueador)</th>
                                 <th>Programa</th>
-                                <th class="col-action">Ação</th>
+                                <th class="col-action">AÃ§Ã£o</th>
                             </tr>
                         </thead>
                         <tbody id="sessions-body"></tbody>
@@ -440,18 +440,18 @@
 
             <div class="card col-12">
                 <div class="card-header">
-                    <h3 class="card-title"><i class="fas fa-hourglass-half"></i> Sessões Ativas de Longa Duração</h3>
+                    <h3 class="card-title"><i class="fas fa-hourglass-half"></i> SessÃµes Ativas de Longa DuraÃ§Ã£o</h3>
                 </div>
                 <div class="table-container">
                     <table>
                         <thead>
                             <tr>
                                 <th>SID / Serial#</th>
-                                <th>Usuário / Programa</th>
+                                <th>UsuÃ¡rio / Programa</th>
                                 <th>Tempo Ativo</th>
                                 <th>Evento</th>
                                 <th>SQL_ID</th>
-                                <th class="col-action">Ação</th>
+                                <th class="col-action">AÃ§Ã£o</th>
                             </tr>
                         </thead>
                         <tbody id="long-running-body"></tbody>
@@ -460,12 +460,12 @@
             </div>
         </section>
 
-        <!-- SECTION: MEMÓRIA (Otimização) -->
+        <!-- SECTION: MEMÃ“RIA (OtimizaÃ§Ã£o) -->
         <section id="memory" class="page-section">
             <header>
                 <div class="header-title">
-                    <h1>Otimização de Memória</h1>
-                    <p>RAM real do servidor + conselheiros do Oracle (sugestões seguras de dimensionamento)</p>
+                    <h1>OtimizaÃ§Ã£o de MemÃ³ria</h1>
+                    <p>RAM real do servidor + conselheiros do Oracle (sugestÃµes seguras de dimensionamento)</p>
                 </div>
                 <button id="refresh-memory" class="btn-primary" onclick="loadMemoryAdvisor(true)">
                     <i class="fas fa-sync-alt"></i> Atualizar Agora
@@ -474,14 +474,14 @@
 
             <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
                 <div class="stat-card">
-                    <span class="stat-label">Modo de Memória</span>
+                    <span class="stat-label">Modo de MemÃ³ria</span>
                     <div class="stat-value" id="mem-mode">--</div>
                     <small id="mem-mode-desc" style="color: var(--text-secondary)"></small>
                 </div>
                 <div class="stat-card">
                     <span class="stat-label">SGA Atual</span>
                     <div class="stat-value" id="mem-sga">--</div>
-                    <small style="color: var(--text-secondary)">Máx: <span id="mem-sga-max">--</span></small>
+                    <small style="color: var(--text-secondary)">MÃ¡x: <span id="mem-sga-max">--</span></small>
                 </div>
                 <div class="stat-card">
                     <span class="stat-label">PGA Target Atual</span>
@@ -495,10 +495,10 @@
                 </div>
             </div>
 
-            <!-- Memória física do servidor (SO) -->
+            <!-- MemÃ³ria fÃ­sica do servidor (SO) -->
             <div class="card col-12" style="margin-bottom: 2rem;">
                 <div class="card-header">
-                    <h3 class="card-title"><i class="fas fa-server"></i> Memória Física do Servidor (SO)</h3>
+                    <h3 class="card-title"><i class="fas fa-server"></i> MemÃ³ria FÃ­sica do Servidor (SO)</h3>
                 </div>
                 <div class="card-body" style="padding: 1.5rem;">
                     <div id="mem-os-area">
@@ -521,18 +521,18 @@
                 </div>
             </div>
 
-            <!-- Recomendações -->
+            <!-- RecomendaÃ§Ãµes -->
             <div class="card col-12" style="margin-bottom: 2rem;">
                 <div class="card-header">
-                    <h3 class="card-title"><i class="fas fa-lightbulb"></i> Recomendações</h3>
+                    <h3 class="card-title"><i class="fas fa-lightbulb"></i> RecomendaÃ§Ãµes</h3>
                 </div>
                 <div id="mem-recommendations" style="padding: 0.5rem 0;"></div>
             </div>
 
-            <!-- Ajustar memória (DBA) — campos montados conforme o modo (AMM/ASMM) -->
+            <!-- Ajustar memÃ³ria (DBA) â€” campos montados conforme o modo (AMM/ASMM) -->
             <div class="card col-12 dba-only" style="margin-bottom: 2rem;">
                 <div class="card-header">
-                    <h3 class="card-title"><i class="fas fa-sliders"></i> Ajustar Memória
+                    <h3 class="card-title"><i class="fas fa-sliders"></i> Ajustar MemÃ³ria
                         <span id="mem-mode-tag" style="font-size:0.7rem; font-weight:700; color:var(--accent-blue); margin-left:6px;"></span>
                     </h3>
                 </div>
@@ -562,7 +562,7 @@
                     <div class="table-container">
                         <table>
                             <thead>
-                                <tr><th>SGA (MB)</th><th>Fator</th><th>DB Time (rel.)</th><th>Leituras Físicas</th></tr>
+                                <tr><th>SGA (MB)</th><th>Fator</th><th>DB Time (rel.)</th><th>Leituras FÃ­sicas</th></tr>
                             </thead>
                             <tbody id="mem-sga-advice"></tbody>
                         </table>
@@ -576,7 +576,7 @@
             <header>
                 <div class="header-title">
                     <h1>Backup &amp; Auditoria</h1>
-                    <p>Status de recuperação (RMAN / Archivelog / FRA) e trilha de auditoria das ações</p>
+                    <p>Status de recuperaÃ§Ã£o (RMAN / Archivelog / FRA) e trilha de auditoria das aÃ§Ãµes</p>
                 </div>
                 <button id="refresh-backup" class="btn-primary" onclick="loadBackupData(true)">
                     <i class="fas fa-sync-alt"></i> Atualizar Agora
@@ -590,7 +590,7 @@
                     <small id="db-role" style="color: var(--text-secondary)">--</small>
                 </div>
                 <div class="stat-card">
-                    <span class="stat-label">Último Backup</span>
+                    <span class="stat-label">Ãšltimo Backup</span>
                     <div class="stat-value" id="last-backup" style="font-size: 1.4rem;">--</div>
                     <small id="last-backup-status" style="color: var(--text-secondary)">--</small>
                 </div>
@@ -601,17 +601,17 @@
                 </div>
             </div>
 
-            <!-- Configuração de Backup (DBA, sem reinício) -->
+            <!-- ConfiguraÃ§Ã£o de Backup (DBA, sem reinÃ­cio) -->
             <div class="card col-12 dba-only" style="margin-bottom: 2rem;">
                 <div class="card-header">
-                    <h3 class="card-title"><i class="fas fa-sliders"></i> Configuração de Backup <span style="font-size:0.7rem; font-weight:600; color:var(--accent-green); margin-left:6px;">(aplicado sem reiniciar)</span></h3>
+                    <h3 class="card-title"><i class="fas fa-sliders"></i> ConfiguraÃ§Ã£o de Backup <span style="font-size:0.7rem; font-weight:600; color:var(--accent-green); margin-left:6px;">(aplicado sem reiniciar)</span></h3>
                 </div>
                 <div class="card-body" style="padding: 1.5rem;">
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-                        <!-- Retenção RMAN (à esquerda) -->
+                        <!-- RetenÃ§Ã£o RMAN (Ã  esquerda) -->
                         <div>
                             <label style="display:block; margin-bottom:0.5rem; font-weight:600; color:var(--text-secondary);">
-                                <i class="fas fa-calendar-days"></i> Retenção do RMAN (dias)
+                                <i class="fas fa-calendar-days"></i> RetenÃ§Ã£o do RMAN (dias)
                             </label>
                             <div style="display:flex; gap:8px;">
                                 <input type="number" id="cfg-retention-days" min="1" class="form-control" placeholder="Ex: 14"
@@ -620,10 +620,10 @@
                             </div>
                             <small id="cfg-retention-current" style="color:var(--text-secondary); display:block; margin-top:0.5rem;">--</small>
                         </div>
-                        <!-- Tamanho máximo da FRA (à direita) -->
+                        <!-- Tamanho mÃ¡ximo da FRA (Ã  direita) -->
                         <div>
                             <label style="display:block; margin-bottom:0.5rem; font-weight:600; color:var(--text-secondary);">
-                                <i class="fas fa-hard-drive"></i> Tamanho máximo da FRA (GB)
+                                <i class="fas fa-hard-drive"></i> Tamanho mÃ¡ximo da FRA (GB)
                             </label>
                             <div style="display:flex; gap:8px;">
                                 <input type="number" id="cfg-fra-size" min="1" class="form-control" placeholder="Ex: 80"
@@ -635,12 +635,12 @@
                         </div>
                     </div>
 
-                    <!-- Archivelog (não pode ser alterado ao vivo) -->
+                    <!-- Archivelog (nÃ£o pode ser alterado ao vivo) -->
                     <div style="margin-top:1.5rem; border-top:1px solid var(--border-color); padding-top:1.5rem; display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap;">
                         <div style="flex:1; min-width:260px;">
                             <strong style="font-size:0.95rem;">Modo Archivelog: <span id="cfg-arch-mode" style="color:var(--accent-blue);">--</span></strong>
                             <p style="font-size:0.8rem; color:var(--text-secondary); margin-top:4px;">
-                                Ligar/desligar o archivelog <strong>exige parada breve</strong> do banco (estado MOUNT) — por isso não é feito ao vivo. Veja o procedimento para executar em janela de manutenção.
+                                Ligar/desligar o archivelog <strong>exige parada breve</strong> do banco (estado MOUNT) â€” por isso nÃ£o Ã© feito ao vivo. Veja o procedimento para executar em janela de manutenÃ§Ã£o.
                             </p>
                         </div>
                         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -655,21 +655,21 @@
                 </div>
             </div>
 
-            <!-- Limpeza e Backup (DBA, sem reinício) -->
+            <!-- Limpeza e Backup (DBA, sem reinÃ­cio) -->
             <div class="card col-12 dba-only" style="margin-bottom: 2rem;">
                 <div class="card-header">
                     <h3 class="card-title"><i class="fas fa-broom"></i> Limpeza &amp; Backup (RMAN)</h3>
                 </div>
                 <div class="card-body" style="padding: 1.5rem;">
                     <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:1.2rem;">
-                        A política de retenção apenas <strong>marca</strong> obsoletos — quem apaga é o <strong>DELETE OBSOLETE</strong> e a <strong>política de deleção</strong> (que deixa a FRA reciclar sozinha). Use os botões abaixo para fechar o ciclo. Tudo sem reiniciar.
+                        A polÃ­tica de retenÃ§Ã£o apenas <strong>marca</strong> obsoletos â€” quem apaga Ã© o <strong>DELETE OBSOLETE</strong> e a <strong>polÃ­tica de deleÃ§Ã£o</strong> (que deixa a FRA reciclar sozinha). Use os botÃµes abaixo para fechar o ciclo. Tudo sem reiniciar.
                     </p>
 
-                    <!-- Política de deleção -->
+                    <!-- PolÃ­tica de deleÃ§Ã£o -->
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; padding-bottom:1.2rem; border-bottom:1px solid var(--border-color);">
                         <div style="flex:1; min-width:260px;">
-                            <strong>Política de deleção de archive: <span id="cfg-delpol-status" style="color:var(--text-secondary)">--</span></strong>
-                            <p style="font-size:0.8rem; color:var(--text-secondary); margin-top:4px;">Quando ativa (<code>BACKED UP 1 TIMES TO DISK</code>), a FRA recicla automaticamente os archives já copiados — principal defesa contra a FRA encher.</p>
+                            <strong>PolÃ­tica de deleÃ§Ã£o de archive: <span id="cfg-delpol-status" style="color:var(--text-secondary)">--</span></strong>
+                            <p style="font-size:0.8rem; color:var(--text-secondary); margin-top:4px;">Quando ativa (<code>BACKED UP 1 TIMES TO DISK</code>), a FRA recicla automaticamente os archives jÃ¡ copiados â€” principal defesa contra a FRA encher.</p>
                         </div>
                         <button id="cfg-delpol-btn" class="btn-primary" onclick="handleToggleDeletionPolicy()"><i class="fas fa-recycle"></i> <span id="cfg-delpol-label">Ativar</span></button>
                     </div>
@@ -678,7 +678,7 @@
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-top:1.2rem;">
                         <div>
                             <label style="display:block; margin-bottom:0.5rem; font-weight:600; color:var(--text-secondary);"><i class="fas fa-trash-can"></i> Limpar obsoletos agora</label>
-                            <p style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:0.6rem;">Roda <code>DELETE OBSOLETE</code> — remove o que já passou da retenção.</p>
+                            <p style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:0.6rem;">Roda <code>DELETE OBSOLETE</code> â€” remove o que jÃ¡ passou da retenÃ§Ã£o.</p>
                             <button class="btn-primary" style="width:100%; justify-content:center; background:var(--accent-orange);" onclick="handleDeleteObsolete()">
                                 <i class="fas fa-trash-can"></i> Limpar obsoletos
                             </button>
@@ -692,16 +692,16 @@
                                 </select>
                                 <button class="btn-primary" style="background:var(--accent-green);" onclick="handleRunBackup()"><i class="fas fa-play"></i> Executar</button>
                             </div>
-                            <p style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.5rem;">O backup grava no destino configurado (geralmente a FRA). <code>DELETE INPUT</code> remove os archives após salvá-los.</p>
+                            <p style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.5rem;">O backup grava no destino configurado (geralmente a FRA). <code>DELETE INPUT</code> remove os archives apÃ³s salvÃ¡-los.</p>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Proteção automática: backups agendados no servidor + guardião da FRA (DBA) -->
+            <!-- ProteÃ§Ã£o automÃ¡tica: backups agendados no servidor + guardiÃ£o da FRA (DBA) -->
             <div class="card col-12 dba-only section-gap" id="protection-card">
                 <div class="card-header">
-                    <h3 class="card-title"><i class="fas fa-shield-heart"></i> Proteção automática da FRA</h3>
+                    <h3 class="card-title"><i class="fas fa-shield-heart"></i> ProteÃ§Ã£o automÃ¡tica da FRA</h3>
                     <span id="prot-summary" class="card-subtitle"></span>
                 </div>
                 <div id="prot-layers" class="prot-layers"></div>
@@ -718,9 +718,9 @@
             <div class="main-grid">
                 <div class="card col-12">
                     <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
-                        <h3 class="card-title" style="margin-bottom:0;"><i class="fas fa-clock-rotate-left"></i> Histórico de Backups (RMAN)</h3>
+                        <h3 class="card-title" style="margin-bottom:0;"><i class="fas fa-clock-rotate-left"></i> HistÃ³rico de Backups (RMAN)</h3>
                         <button class="btn-primary dba-only" style="padding:6px 12px; font-size:0.8rem; background:var(--text-secondary);" onclick="showBackupLogs()">
-                            <i class="fas fa-file-lines"></i> Logs das execuções
+                            <i class="fas fa-file-lines"></i> Logs das execuÃ§Ãµes
                         </button>
                     </div>
                     <div class="table-container">
@@ -729,9 +729,9 @@
                                 <tr>
                                     <th>Tipo</th>
                                     <th>Status</th>
-                                    <th>Início</th>
+                                    <th>InÃ­cio</th>
                                     <th>Fim</th>
-                                    <th>Duração (min)</th>
+                                    <th>DuraÃ§Ã£o (min)</th>
                                     <th>Tamanho</th>
                                     <th class="col-action">Log</th>
                                 </tr>
@@ -743,7 +743,7 @@
 
                 <div class="card col-12 dba-only">
                     <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-clipboard-list"></i> Trilha de Auditoria (ações sensíveis)</h3>
+                        <h3 class="card-title"><i class="fas fa-clipboard-list"></i> Trilha de Auditoria (aÃ§Ãµes sensÃ­veis)</h3>
                         <button class="btn-primary btn-danger btn-xs" onclick="openClearLogs()"><i class="fas fa-trash-can"></i> Limpar todos os logs</button>
                     </div>
                     <div class="table-container audit-scroll">
@@ -751,8 +751,8 @@
                             <thead>
                                 <tr>
                                     <th>Data/Hora</th>
-                                    <th>Ação</th>
-                                    <th>Usuário</th>
+                                    <th>AÃ§Ã£o</th>
+                                    <th>UsuÃ¡rio</th>
                                     <th>IP</th>
                                     <th>Resultado</th>
                                     <th>Detalhe</th>
@@ -765,21 +765,21 @@
             </div>
         </section>
 
-        <!-- SECTION: RECUPERAÇÃO -->
+        <!-- SECTION: RECUPERAÃ‡ÃƒO -->
         <section id="recovery" class="page-section">
             <header>
                 <div class="header-title">
-                    <h1>Recuperação</h1>
-                    <p>Diagnóstico de falhas e corrupção, procedimentos guiados e execução assistida</p>
+                    <h1>RecuperaÃ§Ã£o</h1>
+                    <p>DiagnÃ³stico de falhas e corrupÃ§Ã£o, procedimentos guiados e execuÃ§Ã£o assistida</p>
                 </div>
                 <div class="header-actions">
                     <select id="rec-demo-scenario" class="form-control rec-scenario" hidden onchange="setDemoScenario(this.value)"
-                        title="Modo DEMO: simular uma situação"></select>
+                        title="Modo DEMO: simular uma situaÃ§Ã£o"></select>
                     <button class="btn-primary btn-muted" onclick="loadRecovery(true)">
                         <i class="fas fa-stethoscope"></i> Analisar agora
                     </button>
                     <button id="rec-assist-btn" class="btn-primary btn-success dba-only" onclick="openRecommendedPlan()" disabled>
-                        <i class="fas fa-wand-magic-sparkles"></i> Recuperação guiada
+                        <i class="fas fa-wand-magic-sparkles"></i> RecuperaÃ§Ã£o guiada
                     </button>
                 </div>
             </header>
@@ -798,7 +798,7 @@
                 </div>
                 <div class="card col-4">
                     <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-shield-heart"></i> Prontidão para recuperação</h3>
+                        <h3 class="card-title"><i class="fas fa-shield-heart"></i> ProntidÃ£o para recuperaÃ§Ã£o</h3>
                         <span id="rec-score" class="rec-score"></span>
                     </div>
                     <div id="rec-readiness" class="rec-readiness"></div>
@@ -824,7 +824,7 @@
 
                 <div class="card col-12">
                     <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-book-medical"></i> Procedimentos de recuperação</h3>
+                        <h3 class="card-title"><i class="fas fa-book-medical"></i> Procedimentos de recuperaÃ§Ã£o</h3>
                         <input id="rec-pb-filter" class="form-control rec-filter" type="search" placeholder="Filtrar por nome ou erro (ex.: ORA-01578)"
                             oninput="renderPlaybookLibrary()">
                     </div>
@@ -837,8 +837,8 @@
                         <div class="rec-alert-tools">
                             <select id="rec-alert-filter" class="form-control" onchange="renderAlertLog()">
                                 <option value="all">Erros e eventos</option>
-                                <option value="errors">Só erros</option>
-                                <option value="events">Só eventos (abertura, queda, recuperação)</option>
+                                <option value="errors">SÃ³ erros</option>
+                                <option value="events">SÃ³ eventos (abertura, queda, recuperaÃ§Ã£o)</option>
                             </select>
                         </div>
                     </div>
@@ -853,12 +853,12 @@
 
                 <div class="card col-12 dba-only">
                     <div class="card-header">
-                        <h3 class="card-title"><i class="fas fa-clock-rotate-left"></i> Execuções de recuperação</h3>
-                        <span class="card-subtitle">Disparadas por este painel (também na auditoria)</span>
+                        <h3 class="card-title"><i class="fas fa-clock-rotate-left"></i> ExecuÃ§Ãµes de recuperaÃ§Ã£o</h3>
+                        <span class="card-subtitle">Disparadas por este painel (tambÃ©m na auditoria)</span>
                     </div>
                     <div class="table-container">
                         <table>
-                            <thead><tr><th>Início</th><th>Procedimento</th><th>Usuário</th><th>Resultado</th><th class="col-action">Log</th></tr></thead>
+                            <thead><tr><th>InÃ­cio</th><th>Procedimento</th><th>UsuÃ¡rio</th><th>Resultado</th><th class="col-action">Log</th></tr></thead>
                             <tbody id="rec-jobs-body"></tbody>
                         </table>
                     </div>
@@ -883,9 +883,9 @@
                     <div style="display:flex; align-items:flex-start; gap:10px; padding:10px 14px; border-radius:8px; background:rgba(245,158,11,0.1); margin-bottom:1rem;">
                         <i class="fas fa-triangle-exclamation" style="color:#b45309; margin-top:3px;"></i>
                         <div style="font-size:0.82rem; color:var(--text-secondary);">
-                            Os comandos rodam <strong>de verdade</strong> no banco com o usuário da aplicação e ficam registrados na <strong>auditoria</strong>.
-                            DML/DDL são confirmados automaticamente (<code>autocommit</code>). Separe vários comandos com <code>;</code>.
-                            Comandos do SQL*Plus (<code>SET</code>, <code>SHOW</code>, <code>SHUTDOWN</code>…) não são suportados — apenas SQL/PLSQL.
+                            Os comandos rodam <strong>de verdade</strong> no banco com o usuÃ¡rio da aplicaÃ§Ã£o e ficam registrados na <strong>auditoria</strong>.
+                            DML/DDL sÃ£o confirmados automaticamente (<code>autocommit</code>). Separe vÃ¡rios comandos com <code>;</code>.
+                            Comandos do SQL*Plus (<code>SET</code>, <code>SHOW</code>, <code>SHUTDOWN</code>â€¦) nÃ£o sÃ£o suportados â€” apenas SQL/PLSQL.
                         </div>
                     </div>
                     <textarea id="sql-input" spellcheck="false" placeholder="Ex.: SELECT * FROM v$session WHERE status = 'ACTIVE';"
@@ -924,7 +924,7 @@
 
                     <div class="storage-warnings term-warn">
                         <i class="fas fa-triangle-exclamation"></i>
-                        <span id="term-hint">Os comandos rodam <strong>de verdade</strong> no servidor do banco e ficam registrados na <strong>auditoria</strong>. A senha do SYS é mascarada na saída.</span>
+                        <span id="term-hint">Os comandos rodam <strong>de verdade</strong> no servidor do banco e ficam registrados na <strong>auditoria</strong>. A senha do SYS Ã© mascarada na saÃ­da.</span>
                     </div>
 
                     <div class="term-where" id="term-where"></div>
@@ -932,7 +932,7 @@
                     <textarea id="term-input" class="term-input mono" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
 
                     <div class="term-foot">
-                        <small><i class="fas fa-keyboard"></i> <strong>Ctrl+Enter</strong> executa · um comando por vez (pode ter várias linhas)</small>
+                        <small><i class="fas fa-keyboard"></i> <strong>Ctrl+Enter</strong> executa Â· um comando por vez (pode ter vÃ¡rias linhas)</small>
                         <div class="term-actions">
                             <label class="term-timeout"><i class="fas fa-clock"></i> Tempo-limite
                                 <select id="term-timeout">
@@ -951,12 +951,12 @@
             <div id="term-output" class="term-output" hidden></div>
         </section>
 
-        <!-- Sobre + atualização -->
+        <!-- Sobre + atualizaÃ§Ã£o -->
         <section id="about" class="page-section">
             <header>
                 <div class="header-title">
                     <h1>Sobre o Oracle Pulse</h1>
-                    <p>Versão, informações do sistema e atualização online</p>
+                    <p>VersÃ£o, informaÃ§Ãµes do sistema e atualizaÃ§Ã£o online</p>
                 </div>
             </header>
 
@@ -965,29 +965,29 @@
                     <div class="about-head">
                         <img src="logo.png" alt="Oracle Pulse" class="about-logo" onerror="this.style.display='none'">
                         <div>
-                            <h2 class="about-name">Oracle Pulse <span id="about-version" class="about-ver">—</span></h2>
-                            <p class="about-sub">Painel de monitoramento e administração de banco de dados Oracle</p>
+                            <h2 class="about-name">Oracle Pulse <span id="about-version" class="about-ver">â€”</span></h2>
+                            <p class="about-sub">Painel de monitoramento e administraÃ§Ã£o de banco de dados Oracle</p>
                         </div>
                     </div>
                     <dl class="about-grid" id="about-grid"></dl>
                 </div>
 
                 <div class="card col-4" id="about-update-card">
-                    <div class="card-header"><h3 class="card-title"><i class="fas fa-cloud-arrow-down"></i> Atualização</h3></div>
+                    <div class="card-header"><h3 class="card-title"><i class="fas fa-cloud-arrow-down"></i> AtualizaÃ§Ã£o</h3></div>
                     <div id="about-update-status" class="about-update-status">
-                        <button class="btn-primary" id="about-check-btn" onclick="checkUpdate(true)"><i class="fas fa-rotate"></i> Verificar atualização</button>
-                        <p class="form-hint">Consulta o repositório no GitHub e informa se há uma versão mais nova.</p>
+                        <button class="btn-primary" id="about-check-btn" onclick="checkUpdate(true)"><i class="fas fa-rotate"></i> Verificar atualizaÃ§Ã£o</button>
+                        <p class="form-hint">Consulta o repositÃ³rio no GitHub e informa se hÃ¡ uma versÃ£o mais nova.</p>
                     </div>
                     <div id="about-update-action"></div>
                 </div>
             </div>
 
             <div class="card col-12">
-                <div class="card-header"><h3 class="card-title"><i class="fas fa-shield-halved"></i> Segurança &amp; privacidade</h3></div>
+                <div class="card-header"><h3 class="card-title"><i class="fas fa-shield-halved"></i> SeguranÃ§a &amp; privacidade</h3></div>
                 <ul class="about-notes">
-                    <li>Acesso por perfis <strong>DBA</strong> (total) e <strong>Visualizador</strong> (somente leitura); ações sensíveis ficam na <strong>auditoria</strong>.</li>
-                    <li>A senha do SYS e as credenciais ficam só no <code>.env</code> do servidor; o painel nunca as grava em comandos nem na tela.</li>
-                    <li>Recomendado publicar atrás de um proxy reverso com <strong>HTTPS</strong>.</li>
+                    <li>Acesso por perfis <strong>DBA</strong> (total) e <strong>Visualizador</strong> (somente leitura); aÃ§Ãµes sensÃ­veis ficam na <strong>auditoria</strong>.</li>
+                    <li>A senha do SYS e as credenciais ficam sÃ³ no <code>.env</code> do servidor; o painel nunca as grava em comandos nem na tela.</li>
+                    <li>Recomendado publicar atrÃ¡s de um proxy reverso com <strong>HTTPS</strong>.</li>
                 </ul>
             </div>
         </section>
@@ -1007,7 +1007,7 @@
             </div>
             <div class="modal-footer" style="gap: 10px;">
                 <button class="btn-primary" style="background: var(--accent-orange);" onclick="showSqlPlan()">
-                    <i class="fas fa-sitemap"></i> Ver Plano de Execução
+                    <i class="fas fa-sitemap"></i> Ver Plano de ExecuÃ§Ã£o
                 </button>
                 <button class="btn-primary" onclick="copySql()">
                     <i class="fas fa-copy"></i> Copiar SQL
@@ -1016,7 +1016,7 @@
         </div>
     </div>
 
-    <!-- Modal genérico (sincronização NTP, planos e execuções de recuperação) -->
+    <!-- Modal genÃ©rico (sincronizaÃ§Ã£o NTP, planos e execuÃ§Ãµes de recuperaÃ§Ã£o) -->
     <div id="opModal" class="modal op-modal" role="dialog" aria-modal="true" aria-labelledby="opModalTitle">
         <div class="modal-content">
             <div class="modal-header">
@@ -1031,30 +1031,30 @@
         </div>
     </div>
 
-    <!-- Sobreposição de progresso da atualização do sistema (tela "Sobre") -->
+    <!-- SobreposiÃ§Ã£o de progresso da atualizaÃ§Ã£o do sistema (tela "Sobre") -->
     <div id="update-overlay" class="update-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="update-ov-title">
         <div class="update-card">
             <div class="update-ov-icon" id="update-ov-icon"><i class="fas fa-cloud-arrow-down fa-spin"></i></div>
             <h3 class="update-ov-title" id="update-ov-title">Atualizando o Oracle Pulse</h3>
-            <p class="update-ov-sub" id="update-ov-sub">Preparando a atualização…</p>
+            <p class="update-ov-sub" id="update-ov-sub">Preparando a atualizaÃ§Ã£oâ€¦</p>
             <div class="update-ov-bar"><div class="update-ov-fill" id="update-ov-fill"></div></div>
             <div class="update-ov-pct" id="update-ov-pct">0%</div>
             <ul class="update-ov-steps" id="update-ov-steps">
                 <li data-step="download"><i class="fas fa-circle-notch"></i> Baixando e verificando o instalador</li>
-                <li data-step="install"><i class="fas fa-circle-notch"></i> Instalando a nova versão</li>
-                <li data-step="restart"><i class="fas fa-circle-notch"></i> Reiniciando o serviço</li>
+                <li data-step="install"><i class="fas fa-circle-notch"></i> Instalando a nova versÃ£o</li>
+                <li data-step="restart"><i class="fas fa-circle-notch"></i> Reiniciando o serviÃ§o</li>
                 <li data-step="done"><i class="fas fa-circle-notch"></i> Concluindo</li>
             </ul>
-            <p class="update-ov-note">Não feche esta janela. O painel fica alguns instantes fora do ar e recarrega sozinho.</p>
+            <p class="update-ov-note">NÃ£o feche esta janela. O painel fica alguns instantes fora do ar e recarrega sozinho.</p>
             <div class="update-ov-actions" id="update-ov-actions" hidden></div>
         </div>
     </div>
 
-    <script src="main.js?v=2.3.7"></script>
-    <script src="recovery.js?v=2.3.7"></script>
-    <script src="protection.js?v=2.3.7"></script>
-    <script src="terminal.js?v=2.3.7"></script>
-    <script src="about.js?v=2.3.7"></script>
+    <script src="main.js?v=2.3.9"></script>
+    <script src="recovery.js?v=2.3.9"></script>
+    <script src="protection.js?v=2.3.9"></script>
+    <script src="terminal.js?v=2.3.9"></script>
+    <script src="about.js?v=2.3.9"></script>
 </body>
 
 </html>
