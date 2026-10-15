@@ -1263,3 +1263,81 @@ tr.row-danger td { background: rgba(239, 68, 68, 0.05); }
 #about-update-result { margin: 0.15rem 0; }
 .about-notes { margin: 0; padding-left: 1.1rem; font-size: 0.83rem; color: var(--text-secondary); line-height: 1.6; }
 .about-notes strong { color: var(--text-primary); }
+
+/* ===================== Sobreposição de progresso da atualização ===================== */
+.update-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    animation: ovFade 0.2s ease-out;
+}
+@keyframes ovFade { from { opacity: 0; } to { opacity: 1; } }
+
+.update-card {
+    width: 100%;
+    max-width: 440px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+    padding: 2rem;
+    text-align: center;
+}
+
+.update-ov-icon {
+    width: 64px; height: 64px;
+    margin: 0 auto 1rem;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    background: rgba(59, 130, 246, 0.12);
+    color: var(--accent-blue);
+    font-size: 1.55rem;
+}
+.update-overlay.is-done .update-ov-icon { background: rgba(16, 185, 129, 0.14); color: #059669; }
+.update-overlay.is-error .update-ov-icon { background: rgba(239, 68, 68, 0.12); color: #dc2626; }
+
+.update-ov-title { margin: 0 0 0.35rem; font-size: 1.2rem; color: var(--text-primary); }
+.update-ov-sub { margin: 0 0 1.1rem; font-size: 0.9rem; color: var(--text-secondary); min-height: 2.4em; }
+
+.update-ov-bar {
+    height: 10px;
+    border-radius: 999px;
+    background: var(--bg-main);
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+.update-ov-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent-blue), #60a5fa);
+    background-size: 200% 100%;
+    transition: width 0.35s ease;
+    animation: ovShimmer 1.6s linear infinite;
+}
+@keyframes ovShimmer { from { background-position: 200% 0; } to { background-position: 0 0; } }
+.update-overlay.is-done .update-ov-fill { background: linear-gradient(90deg, #10b981, #34d399); animation: none; }
+.update-overlay.is-error .update-ov-fill { background: #ef4444; animation: none; }
+
+.update-ov-pct { margin: 0.5rem 0 1.1rem; font-size: 0.85rem; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+.update-ov-steps { list-style: none; margin: 0 0 1rem; padding: 0; text-align: left; display: flex; flex-direction: column; gap: 0.5rem; }
+.update-ov-steps li { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; color: var(--text-secondary); opacity: 0.5; transition: opacity 0.2s, color 0.2s; }
+.update-ov-steps li i { width: 1.1rem; text-align: center; }
+.update-ov-steps li.is-active { opacity: 1; color: var(--text-primary); }
+.update-ov-steps li.is-active i { color: var(--accent-blue); }
+.update-ov-steps li.is-done { opacity: 1; color: var(--text-primary); }
+.update-ov-steps li.is-done i { color: #059669; }
+
+.update-ov-note { margin: 0; font-size: 0.78rem; color: var(--text-secondary); }
+.update-overlay.is-error .update-ov-note, .update-overlay.is-done .update-ov-note { display: none; }
+
+.update-ov-actions { margin-top: 1.1rem; display: flex; gap: 0.6rem; justify-content: center; }
+.update-ov-actions:empty { display: none; }

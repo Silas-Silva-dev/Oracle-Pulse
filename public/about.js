@@ -102,32 +102,163 @@
         }
     };
 
+    // ---- Sobreposição de progresso da atualização -------------------------
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const STEPS = ['download', 'install', 'restart', 'done'];
+    let ovTimer = null, ovValue = 0, ovCap = 0;
+
+    function ovRender() {
+        $('update-ov-fill').style.width = ovValue + '%';
+        $('update-ov-pct').textContent = Math.round(ovValue) + '%';
+    }
+    function ovCreep(cap) {
+        ovCap = Math.max(ovCap, cap);
+        if (ovTimer) return;
+        ovTimer = setInterval(() => {
+            if (ovValue < ovCap) {
+                ovValue += Math.max(0.15, (ovCap - ovValue) * 0.035);
+                if (ovValue > ovCap) ovValue = ovCap;
+                ovRender();
+            }
+        }, 160);
+    }
+    function ovStop() { if (ovTimer) { clearInterval(ovTimer); ovTimer = null; } }
+    function ovSub(t) { $('update-ov-sub').textContent = t; }
+    function ovStep(active) {
+        const ai = STEPS.indexOf(active);
+        STEPS.forEach((step, i) => {
+            const li = document.querySelector(`#update-ov-steps li[data-step="${step}"]`);
+            if (!li) return;
+            const ic = li.querySelector('i');
+            li.classList.remove('is-active', 'is-done');
+            if (ai >= 0 && i < ai) { li.classList.add('is-done'); ic.className = 'fas fa-circle-check'; }
+            else if (i === ai) { li.classList.add('is-active'); ic.className = 'fas fa-spinner fa-spin'; }
+            else { ic.className = 'fas fa-circle-notch'; }
+        });
+    }
+    function ovAllDone() {
+        document.querySelectorAll('#update-ov-steps li').forEach((li) => {
+            li.classList.remove('is-active'); li.classList.add('is-done');
+            li.querySelector('i').className = 'fas fa-circle-check';
+        });
+    }
+    function ovOpen() {
+        const o = $('update-overlay');
+        o.className = 'update-overlay';
+        o.hidden = false;
+        $('update-ov-icon').innerHTML = '<i class="fas fa-cloud-arrow-down fa-spin"></i>';
+        $('update-ov-title').textContent = 'Atualizando o Oracle Pulse';
+        $('update-ov-actions').hidden = true;
+        $('update-ov-actions').innerHTML = '';
+        ovValue = 0; ovCap = 0; ovRender();
+        ovStep('download');
+        ovSub('Baixando e verificando o instalador…');
+        ovCreep(30);
+    }
+    function ovFinish(title, sub) {
+        ovStop(); ovAllDone();
+        $('update-overlay').classList.add('is-done');
+        ovValue = 100; ovRender();
+        $('update-ov-icon').innerHTML = '<i class="fas fa-circle-check"></i>';
+        $('update-ov-title').textContent = title;
+        ovSub(sub);
+    }
+    function ovError(msg) {
+        ovStop();
+        $('update-overlay').classList.add('is-error');
+        $('update-ov-icon').innerHTML = '<i class="fas fa-circle-xmark"></i>';
+        $('update-ov-title').textContent = 'Não foi possível atualizar';
+        ovSub(msg || 'Falha na atualização.');
+        const a = $('update-ov-actions');
+        a.hidden = false;
+        a.innerHTML = `<button class="btn-primary" onclick="closeUpdateOverlay()"><i class="fas fa-xmark"></i> Fechar</button>`;
+    }
+    window.closeUpdateOverlay = function () {
+        ovStop();
+        $('update-overlay').hidden = true;
+        const b = $('about-update-btn'); if (b) b.disabled = false;
+    };
+
+    // Lê a versão atual do painel por uma via sem autenticação forte (fetch cru):
+    // assim um 401 transitório não dispara reload (secureFetch recarregaria a página).
+    async function fetchVersion() {
+        let tok = null; try { tok = sessionStorage.getItem('oracle_pulse_token'); } catch (e) { /* ignore */ }
+        const r = await fetch('/api/about', { cache: 'no-store', headers: tok ? { Authorization: 'Bearer ' + tok } : {} });
+        if (!r.ok) throw new Error('status ' + r.status);
+        const j = await r.json();
+        return j && j.data ? String(j.data.version || '') : '';
+    }
+    async function pollUntilVersion(target) {
+        const start = Date.now();
+        const maxMs = 6 * 60 * 1000;
+        let sawDown = false;
+        while (Date.now() - start < maxMs) {
+            await sleep(2500);
+            try {
+                const v = await fetchVersion();
+                if (v && v === String(target)) return true;
+                if (!sawDown) { ovStep('install'); ovSub('Instalando a nova versão…'); ovCreep(72); }
+            } catch (e) {
+                sawDown = true;
+                ovStep('restart');
+                ovSub('Reiniciando o serviço… o painel volta em instantes.');
+                ovCreep(93);
+            }
+        }
+        return false;
+    }
+
     window.startUpdate = async function () {
         const pwd = ($('about-pwd') && $('about-pwd').value || '').trim();
         const out = $('about-update-result');
         const btn = $('about-update-btn');
         if (!pwd) { out.innerHTML = `<div class="result-box is-error"><strong>Informe a senha de instalação do dia.</strong></div>`; return; }
         if (!confirm('Atualizar o Oracle Pulse agora?\n\nO serviço será reiniciado e o painel ficará alguns instantes fora do ar. A configuração (.env) é mantida.')) return;
-        btn.disabled = true;
-        out.innerHTML = `<div class="result-box"><strong><i class="fas fa-spinner fa-spin"></i> Baixando e iniciando a atualização...</strong></div>`;
+        if (btn) btn.disabled = true;
+        out.innerHTML = '';
+        ovOpen();
         try {
             const json = await (await secureFetch('/api/about/update', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ installPassword: pwd }),
             })).json();
-            if (!json.success) {
-                out.innerHTML = `<div class="result-box is-error"><strong><i class="fas fa-circle-xmark"></i> ${esc(json.error || 'Falha.')}</strong></div>`;
-                btn.disabled = false;
+
+            // As mensagens da sobreposição vão para textContent (já seguro) — sem esc().
+            if (!json.success) { ovError(json.error || 'Falha ao iniciar a atualização.'); return; }
+
+            // Modo DEMO: mostra o fluxo até o fim, sem recarregar nada.
+            if (json.data && json.data.demo) {
+                ovStep('install'); ovSub('Instalando a nova versão… (simulação)'); ovCreep(80);
+                await sleep(1300);
+                ovStep('restart'); ovSub('Reiniciando o serviço… (simulação)'); ovValue = 93; ovRender();
+                await sleep(1100);
+                ovFinish('Simulação concluída', 'Em uma instalação real (serviço Windows), o painel reiniciaria agora.');
+                const a = $('update-ov-actions'); a.hidden = false;
+                a.innerHTML = `<button class="btn-primary" onclick="closeUpdateOverlay()"><i class="fas fa-xmark"></i> Fechar</button>`;
                 return;
             }
+
             if (json.data && json.data.started) {
-                out.innerHTML = `<div class="result-box is-ok"><strong><i class="fas fa-circle-check"></i> Atualização iniciada para a v${esc(json.data.version)}.</strong><br>O painel vai reiniciar em instantes — aguarde e recarregue a página.</div>`;
-            } else {
-                out.innerHTML = `<div class="result-box is-ok"><strong>${esc((json.data && json.data.message) || 'OK')}</strong></div>`;
-                btn.disabled = false;
+                const target = String(json.data.version || '');
+                ovStep('install');
+                ovSub('Instalando a nova versão… o serviço vai reiniciar.');
+                ovCreep(70);
+                const ok = await pollUntilVersion(target);
+                if (ok) {
+                    ovFinish('Atualização concluída!', `Agora na versão v${target}. Recarregando o painel…`);
+                    setTimeout(() => location.reload(), 1600);
+                } else {
+                    ovStop();
+                    $('update-ov-title').textContent = 'A atualização está demorando…';
+                    ovSub('Se o painel não voltar sozinho, recarregue a página.');
+                    const a = $('update-ov-actions'); a.hidden = false;
+                    a.innerHTML = `<button class="btn-primary" onclick="location.reload()"><i class="fas fa-rotate"></i> Recarregar agora</button>`;
+                }
+                return;
             }
+
+            ovError((json.data && json.data.message) || 'Resposta inesperada do servidor.');
         } catch (err) {
-            out.innerHTML = `<div class="result-box is-error"><strong>Erro de rede: ${esc(err.message)}</strong></div>`;
-            btn.disabled = false;
+            ovError('Erro de rede: ' + err.message);
         }
     };
 

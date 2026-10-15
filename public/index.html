@@ -7,9 +7,9 @@
     <title>Oracle Pulse | Monitoring</title>
     <link rel="icon" href="favicon.ico?v=6" sizes="16x16 24x24 32x32 48x48">
     <link rel="icon" type="image/png" sizes="192x192" href="favicon.png?v=6">
-    <link rel="stylesheet" href="style.css?v=2.3.6">
-    <link rel="stylesheet" href="recovery.css?v=2.3.6">
-    <link rel="stylesheet" href="protection.css?v=2.3.6">
+    <link rel="stylesheet" href="style.css?v=2.3.7">
+    <link rel="stylesheet" href="recovery.css?v=2.3.7">
+    <link rel="stylesheet" href="protection.css?v=2.3.7">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -1027,11 +1027,30 @@
         </div>
     </div>
 
-    <script src="main.js?v=2.3.6"></script>
-    <script src="recovery.js?v=2.3.6"></script>
-    <script src="protection.js?v=2.3.6"></script>
-    <script src="terminal.js?v=2.3.6"></script>
-    <script src="about.js?v=2.3.6"></script>
+    <!-- Sobreposição de progresso da atualização do sistema (tela "Sobre") -->
+    <div id="update-overlay" class="update-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="update-ov-title">
+        <div class="update-card">
+            <div class="update-ov-icon" id="update-ov-icon"><i class="fas fa-cloud-arrow-down fa-spin"></i></div>
+            <h3 class="update-ov-title" id="update-ov-title">Atualizando o Oracle Pulse</h3>
+            <p class="update-ov-sub" id="update-ov-sub">Preparando a atualização…</p>
+            <div class="update-ov-bar"><div class="update-ov-fill" id="update-ov-fill"></div></div>
+            <div class="update-ov-pct" id="update-ov-pct">0%</div>
+            <ul class="update-ov-steps" id="update-ov-steps">
+                <li data-step="download"><i class="fas fa-circle-notch"></i> Baixando e verificando o instalador</li>
+                <li data-step="install"><i class="fas fa-circle-notch"></i> Instalando a nova versão</li>
+                <li data-step="restart"><i class="fas fa-circle-notch"></i> Reiniciando o serviço</li>
+                <li data-step="done"><i class="fas fa-circle-notch"></i> Concluindo</li>
+            </ul>
+            <p class="update-ov-note">Não feche esta janela. O painel fica alguns instantes fora do ar e recarrega sozinho.</p>
+            <div class="update-ov-actions" id="update-ov-actions" hidden></div>
+        </div>
+    </div>
+
+    <script src="main.js?v=2.3.7"></script>
+    <script src="recovery.js?v=2.3.7"></script>
+    <script src="protection.js?v=2.3.7"></script>
+    <script src="terminal.js?v=2.3.7"></script>
+    <script src="about.js?v=2.3.7"></script>
 </body>
 
 </html>

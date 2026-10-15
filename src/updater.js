@@ -148,7 +148,7 @@ async function downloadTo(url, dest) {
 async function startUpdate({ installPassword } = {}) {
     if (!config.update.enabled) throw badRequest('Atualização desativada por configuração.');
     const pwd = String(installPassword || '').trim();
-    if (!pwd) throw badRequest('Informe a senha de instalação do dia (aplicativo "Oracle Pulse").');
+    if (!pwd) throw badRequest('Informe a senha de instalação:');
 
     if (config.demoMode) return { started: false, demo: true, message: 'Simulação: em uma instalação real, o instalador seria baixado e executado agora.' };
 
