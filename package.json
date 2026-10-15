@@ -8,7 +8,8 @@
     "dev": "node --watch server.js",
     "demo": "node -e \"process.env.DEMO_MODE='true';require('./server.js')\"",
     "hash": "node bin/hash-password.js",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "release": "powershell -NoProfile -ExecutionPolicy Bypass -File installer/release.ps1"
   },
   "keywords": [
     "oracle",

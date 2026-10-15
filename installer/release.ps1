@@ -5,24 +5,30 @@
 
 .DESCRIPTION
     Faz, em ordem:
-      1. (opcional) muda a versão em package.json / package-lock.json e faz commit;
+      1. (opcional) muda a versão em package.json / package-lock.json e ajusta o
+         cache-busting (?v=) do public/index.html, tudo num único commit de release;
       2. compila o instalador (installer\build.ps1) e calcula o SHA-256;
       3. cria a tag vX.Y.Z e envia (push) main + tag;
       4. cria a Release no GitHub e anexa o .exe, com o SHA-256 nas notas.
 
-    Para o passo 4 usa, nesta ordem de preferência:
-      - o GitHub CLI "gh" (se instalado e autenticado) — nada mais é preciso; ou
+    Para o passo 4 (autenticação no GitHub) usa, nesta ordem:
+      - o GitHub CLI "gh" (se instalado e autenticado); ou
       - a API do GitHub com um token (-Token ou $env:GITHUB_TOKEN); ou
-      - se não houver nenhum, para após o passo 3 e mostra o passo manual.
+      - a credencial do GitHub já salva no Git (a mesma usada nos "git push") —
+        é o padrão e não exige configurar nada; ou
+      - se nada disso existir, para após o passo 3 e mostra o passo manual.
 
 .EXAMPLE
-    # Lança a versão que está no package.json (gh instalado):
+    # Publica a PRÓXIMA versão (sobe p/ 2.3.9, compila, tag, push e Release) — comando único:
+    powershell -ExecutionPolicy Bypass -File installer\release.ps1 -Version 2.3.9
+
+.EXAMPLE
+    # Atalho equivalente pelo npm:
+    npm run release -- -Version 2.3.9
+
+.EXAMPLE
+    # Publica a versão que já está no package.json:
     powershell -ExecutionPolicy Bypass -File installer\release.ps1
-
-.EXAMPLE
-    # Sobe para 2.3.1 e publica usando um token:
-    $env:GITHUB_TOKEN = "ghp_xxx"
-    powershell -ExecutionPolicy Bypass -File installer\release.ps1 -Version 2.3.1
 
 .NOTES
     Token (quando não usa gh): crie um Personal Access Token com permissão de
@@ -48,18 +54,19 @@ if ($originUrl -notmatch 'github\.com[:/]+([^/]+)/([^/.]+)') { Die "remote 'orig
 $Owner = $Matches[1]; $Repo = $Matches[2]
 Info "Repositório: $Owner/$Repo"
 
-# ---- versão ---------------------------------------------------------------
+# ---- versão + cache-busting ----------------------------------------------
 $pkgPath = Join-Path $Root 'package.json'
+$lockPath = Join-Path $Root 'package-lock.json'
+$indexPath = Join-Path $Root 'public\index.html'
 $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
+
 if ($Version) {
     if ($Version -notmatch '^\d+\.\d+\.\d+$') { Die "versão inválida: $Version (use X.Y.Z)" }
     if ($pkg.version -ne $Version) {
         Info "Mudando a versão $($pkg.version) -> $Version"
-        foreach ($f in @($pkgPath, (Join-Path $Root 'package-lock.json'))) {
+        foreach ($f in @($pkgPath, $lockPath)) {
             (Get-Content $f -Raw) -replace "`"version`":\s*`"$([regex]::Escape($pkg.version))`"", "`"version`": `"$Version`"" | Set-Content $f -NoNewline -Encoding UTF8
         }
-        & git -C $Root add package.json package-lock.json
-        & git -C $Root commit -m "chore: release v$Version" | Out-Null
     }
 } else {
     $Version = $pkg.version
@@ -67,8 +74,25 @@ if ($Version) {
 $Tag = "v$Version"
 Info "Versão: $Version  (tag $Tag)"
 
+# Mantém o cache-busting (?v=) do index.html igual à versão: sem isso, depois de
+# atualizar o navegador continua servindo o CSS/JS antigo do cache.
+if (Test-Path $indexPath) {
+    $origIndex = Get-Content $indexPath -Raw
+    $newIndex = $origIndex -replace '\?v=\d+\.\d+\.\d+', "?v=$Version"
+    if ($newIndex -ne $origIndex) {
+        [System.IO.File]::WriteAllText($indexPath, $newIndex)
+        Info "Cache-busting do index.html ajustado para ?v=$Version"
+    }
+}
+
+# Commita as mudanças de versão/cache-busting (se houver) num único commit de release.
+if (& git -C $Root status --porcelain -- package.json package-lock.json public/index.html) {
+    & git -C $Root add package.json package-lock.json public/index.html
+    & git -C $Root commit -m "chore: release v$Version" | Out-Null
+}
+
 # ---- árvore limpa? --------------------------------------------------------
-if ((& git -C $Root status --porcelain)) { Die "há alterações não commitadas. Faça commit (ou use -Version para versionar) antes de publicar." }
+if ((& git -C $Root status --porcelain)) { Die "há outras alterações não commitadas. Faça commit do seu trabalho antes de publicar (a versão e o cache-busting são tratados por este script)." }
 
 # ---- build + SHA-256 ------------------------------------------------------
 $exe = Join-Path $Root "installer\dist\OraclePulse-Setup-$Version.exe"
@@ -95,6 +119,19 @@ if (& git -C $Root tag --list $Tag) { Write-Host "  (a tag $Tag já existe)" } e
 # ---- criar a Release e anexar o instalador --------------------------------
 $gh = Get-Command gh -ErrorAction SilentlyContinue
 if (-not $Token) { $Token = $env:GITHUB_TOKEN }
+
+# Sem gh e sem token explícito: reaproveita a credencial do GitHub já salva
+# (Git Credential Manager — a mesma usada nos "git push"). Assim o comando publica
+# sozinho, sem precisar instalar o gh nem exportar GITHUB_TOKEN.
+if (-not $gh -and -not $Token) {
+    try {
+        $gcm = (("protocol=https", "host=github.com", "") -join "`n") | & git -C $Root credential fill 2>$null
+        $Token = (($gcm | Where-Object { $_ -like 'password=*' }) -replace '^password=', '').Trim()
+        if ($Token) { Info 'Autenticando com a credencial do Git já salva (Gerenciador de Credenciais).' }
+    } catch {
+        # Sem credencial salva: cai na instrução manual mais abaixo.
+    }
+}
 
 if ($gh) {
     Info "Publicando a Release com o GitHub CLI (gh)..."
