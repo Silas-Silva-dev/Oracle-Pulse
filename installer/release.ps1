@@ -58,14 +58,22 @@ Info "Repositório: $Owner/$Repo"
 $pkgPath = Join-Path $Root 'package.json'
 $lockPath = Join-Path $Root 'package-lock.json'
 $indexPath = Join-Path $Root 'public\index.html'
-$pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
+# UTF-8 SEM BOM para TODA leitura/escrita de texto aqui. Sem isto, o Windows
+# PowerShell 5.1 le um arquivo UTF-8 SEM BOM como ANSI (Windows-1252) e, ao
+# regravar como UTF-8, gera duplo-encode (mojibake) — foi o que corrompeu o
+# public/index.html no release v2.3.9.
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+function Read-Utf8($p) { [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8) }
+function Write-Utf8($p, $s) { [System.IO.File]::WriteAllText($p, $s, $utf8NoBom) }
+$pkg = Read-Utf8 $pkgPath | ConvertFrom-Json
 
 if ($Version) {
     if ($Version -notmatch '^\d+\.\d+\.\d+$') { Die "versão inválida: $Version (use X.Y.Z)" }
     if ($pkg.version -ne $Version) {
         Info "Mudando a versão $($pkg.version) -> $Version"
         foreach ($f in @($pkgPath, $lockPath)) {
-            (Get-Content $f -Raw) -replace "`"version`":\s*`"$([regex]::Escape($pkg.version))`"", "`"version`": `"$Version`"" | Set-Content $f -NoNewline -Encoding UTF8
+            $txt = (Read-Utf8 $f) -replace "`"version`":\s*`"$([regex]::Escape($pkg.version))`"", "`"version`": `"$Version`""
+            Write-Utf8 $f $txt
         }
     }
 } else {
@@ -77,12 +85,19 @@ Info "Versão: $Version  (tag $Tag)"
 # Mantém o cache-busting (?v=) do index.html igual à versão: sem isso, depois de
 # atualizar o navegador continua servindo o CSS/JS antigo do cache.
 if (Test-Path $indexPath) {
-    $origIndex = Get-Content $indexPath -Raw
+    $origIndex = Read-Utf8 $indexPath
     $newIndex = $origIndex -replace '\?v=\d+\.\d+\.\d+', "?v=$Version"
     if ($newIndex -ne $origIndex) {
-        [System.IO.File]::WriteAllText($indexPath, $newIndex)
+        Write-Utf8 $indexPath $newIndex
         Info "Cache-busting do index.html ajustado para ?v=$Version"
     }
+    # Rede de seguranca: um release NUNCA deve re-codificar o arquivo. Conta a
+    # assinatura de duplo-encode (bytes C3 83 / C3 82, que o texto pt-BR quase nao
+    # usa) e ABORTA o release se ela disparar. O index.html limpo tem 2 (RECUPERACAO).
+    $b = [System.IO.File]::ReadAllBytes($indexPath)
+    $marks = 0
+    for ($i = 0; $i -lt $b.Length - 1; $i++) { if ($b[$i] -eq 0xC3 -and ($b[$i + 1] -eq 0x83 -or $b[$i + 1] -eq 0x82)) { $marks++ } }
+    if ($marks -gt 5) { Die "index.html ficou com encoding corrompido (duplo-encode UTF-8: $marks marcas). Release abortado — corrija o encoding antes de publicar." }
 }
 
 # Commita as mudanças de versão/cache-busting (se houver) num único commit de release.

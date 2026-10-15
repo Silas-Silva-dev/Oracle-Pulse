@@ -1,7 +1,7 @@
 ﻿{
   "name": "oracle-pulse",
   "version": "2.3.9",
-  "description": "Painel de monitoramento Oracle (performance, sessÃµes, storage, backup)",
+  "description": "Painel de monitoramento Oracle (performance, sessões, storage, backup)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
