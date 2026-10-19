@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Publica uma nova versão do Oracle Pulse no GitHub (Release + instalador anexado)
     num único comando. É o que a tela "Sobre" usa para detectar/baixar atualizações.
