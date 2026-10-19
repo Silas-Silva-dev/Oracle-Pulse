@@ -100,6 +100,12 @@ class Builder {
         this.handledKcratr = false;
     }
 
+    // Reivindica códigos sem emitir um problema visível: evita que o ruleAlert
+    // mostre como ativo algo que outra regra já considerou resolvido/sob controle.
+    markHandled(codes) {
+        (codes || []).forEach((c) => this.handledCodes.add(c));
+    }
+
     add(f) {
         const playbooks = (f.playbooks || []).filter((p) => applicable(p.id, this.s.state));
         if (playbooks.length && !playbooks.some((p) => p.recommended)) playbooks[0].recommended = true;
@@ -526,20 +532,38 @@ function ruleControlfile(b) {
     });
 }
 
+const FRA_CODES = ['ORA-00257', 'ORA-19809', 'ORA-19815', 'ORA-16038', 'ORA-16014', 'ORA-19804', 'ORA-00255', 'ORA-00270'];
+
 function ruleFra(b) {
     const s = b.s;
     const fra = s.fra;
+    const p = fra ? fra.usedPct : null;
     const stuck = recentGroup(s, ['ORA-00257', 'ORA-19809', 'ORA-16038', 'ORA-16014', 'ORA-19804'], 2);
     const lc = lifecycle(s);
     const freedAfter = stuck && lc.lastArchiverOk && lc.lastArchiverOk.epoch > (stuck.lastEpoch || 0);
-    const warn = recentGroup(s, ['ORA-19815'], 2);
+    // Janela de 7 dias: pega também avisos mais antigos para decidir se ainda valem
+    // e, se não valerem, reivindicá-los (markHandled) para o ruleAlert não os reabrir.
+    const warn = recentGroup(s, ['ORA-19815'], 7);
     const destErr = (s.archiveDests || []).filter((d) => d.status === 'ERROR' || d.status === 'FULL');
-    const p = fra ? fra.usedPct : null;
+
+    // Um ORA-19815 recente só é problema ATIVO se o espaço ainda está apertado agora.
+    // Se a FRA já está baixa, OU o Guardião da FRA administrou o espaço depois do aviso,
+    // o aviso ficou obsoleto (o gerenciamento de espaço está funcionando).
+    const guardManagedEpoch = (s.protection && s.protection.guardManagedEpoch) || null;
+    const managedAfterWarn = warn && guardManagedEpoch && guardManagedEpoch > (warn.lastEpoch || 0);
+    const fraHealthyNow = p != null && p < 75;
+    const warnActive = warn && !(fraHealthyNow || managedAfterWarn);
+
     let sev = null;
     if ((stuck && !freedAfter) || (p != null && p >= 95) || destErr.some((d) => /19809|0*257|16014|space|espa/i.test(d.error || '') || d.status === 'FULL')) sev = 'critical';
     else if (p != null && p >= 85) sev = 'high';
-    else if ((p != null && p >= 75) || warn) sev = 'medium';
-    if (!sev && !destErr.length) return;
+    else if ((p != null && p >= 75) || warnActive) sev = 'medium';
+    if (!sev && !destErr.length) {
+        // Nada ativo: a FRA está sob controle. Reivindica os códigos de FRA para o
+        // ruleAlert não apontar um aviso já administrado como problema.
+        b.markHandled(FRA_CODES);
+        return;
+    }
     const critical = sev === 'critical';
     b.add({
         id: 'fra', severity: sev || 'high', code: stuck && !freedAfter ? 'ORA-00257' : (critical ? 'ORA-19809' : 'ORA-19815'), category: 'archive',
@@ -550,15 +574,15 @@ function ruleFra(b) {
         evidence: [
             fra ? `FRA ${fra.dest}: ${pct(p)} usada (${Math.round((fra.usedMb - fra.reclaimableMb) / 1024)} de ${Math.round(fra.limitMb / 1024)} GB; ${Math.round(fra.reclaimableMb / 1024)} GB recicláveis).` : null,
             stuck ? `${stuck.code} no alert log: ${stuck.count}x, último em ${stuck.last}${freedAfter ? ' (archiver liberado depois)' : ''}.` : null,
-            warn && !stuck ? `ORA-19815 (aviso de FRA) em ${warn.last}.` : null,
+            warnActive && !stuck ? `ORA-19815 (aviso de FRA) em ${warn.last}.` : null,
             ...destErr.map((d) => `Destino ${d.id} (${d.destination}): ${d.status}${d.error ? ` — ${d.error}` : ''}`),
         ],
-        samples: stuck ? stuck.samples : (warn ? warn.samples : []),
-        lastSeen: stuck ? stuck.last : (warn ? warn.last : null),
+        samples: stuck ? stuck.samples : (warnActive ? warn.samples : []),
+        lastSeen: stuck ? stuck.last : (warnActive ? warn.last : null),
         playbooks: fra
             ? [pb('fra-free', { mode: 'grow' }, true, null, 'Aumentar o limite da FRA'), pb('fra-free', { mode: 'cleanup' }, false, null, 'Limpar a FRA (o que é seguro apagar)')]
             : [pb('fra-free', { mode: 'cleanup' }, true, null, 'Limpar archives e backups obsoletos')],
-        alsoHandles: ['ORA-00257', 'ORA-19809', 'ORA-19815', 'ORA-16038', 'ORA-16014', 'ORA-19804', 'ORA-00255', 'ORA-00270'],
+        alsoHandles: FRA_CODES,
     });
 }
 

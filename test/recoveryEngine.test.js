@@ -90,6 +90,25 @@ test('laudo: erro dentro de job tem impacto restrito; corrupção só em índice
     assert.notEqual(fra.playbooks[0].label, fra.playbooks[1].label, 'botões com rótulos distintos');
 });
 
+test('laudo: aviso de FRA antigo não é problema ativo quando a FRA está baixa (Guardião administra)', () => {
+    // Cenário do usuário: ORA-19815 no alert log, mas o Guardião já administrou o
+    // espaço e a FRA está baixa agora — não pode continuar apontando "FRA cheia".
+    const s = scenario('padrao');
+    s.fra = { ...s.fra, usedMb: Math.round(0.4 * s.fra.limitMb) };
+    s.fra.usedPct = Math.round(((s.fra.usedMb - s.fra.reclaimableMb) / s.fra.limitMb) * 1000) / 10;
+    s.protection = { guardEnabled: true, guardManagedEpoch: Date.now() };
+    assert.ok(s.fra.usedPct < 75, 'pré-condição: FRA baixa');
+
+    const active = findings.evaluate(s).findings.filter((f) => f.status === 'active');
+    assert.ok(!active.some((f) => f.id === 'fra'), 'FRA baixa não gera problema de FRA ativo');
+    assert.ok(!active.some((f) => f.code === 'ORA-19815'), 'ORA-19815 antigo não reaparece como problema ativo');
+
+    // Regressão: com a FRA realmente cheia, o problema continua aparecendo.
+    const full = scenario('padrao'); // o cenário padrão já tem a FRA ~88%
+    assert.ok(full.fra.usedPct >= 85, 'pré-condição: FRA cheia no cenário padrão');
+    assert.ok(findings.evaluate(full).findings.some((f) => f.id === 'fra' && f.status === 'active'), 'FRA cheia continua sendo problema');
+});
+
 test('laudo: banco inacessível sem SYSDBA vira problema de conexão com o procedimento certo', () => {
     const base = { state: 'UNKNOWN', connection: { ok: false, error: collect.classifyConnectError(new Error('NJS-503: connection to host 10.0.0.5 port 1521 could not be established. (CONNECTION_ID=x) connect ECONNREFUSED')) }, capabilities: { canSysdba: false } };
     const r = findings.evaluate(base);

@@ -34,7 +34,9 @@ async function diagnose(req, { force = false, days } = {}) {
     const signals = config.demoMode ? demo.signals() : await collect.collect({ allowSysdba: key === 'dba', days });
     try {
         const p = require('../backupSchedule').loadSettings();
-        signals.protection = { scheduleInstalled: !!p.schedule.installed, guardEnabled: !!p.guard.enabled, strategy: p.schedule.strategy };
+        let guardManagedEpoch = null;
+        try { guardManagedEpoch = require('../fraGuard').lastManagedEpoch(); } catch { /* guardião indisponível */ }
+        signals.protection = { scheduleInstalled: !!p.schedule.installed, guardEnabled: !!p.guard.enabled, strategy: p.schedule.strategy, guardManagedEpoch };
     } catch { /* sem configuração */ }
     const report = findings.evaluate(signals);
     const entry = { at: Date.now(), signals, report };

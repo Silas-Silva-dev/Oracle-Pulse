@@ -318,6 +318,21 @@ function pushHistory(entry) {
     }
 }
 
+const MANAGE_KINDS = new Set(['cleanup', 'grow', 'backup-archivelog', 'force-delete', 'dump']);
+
+/** Epoch (ms) da última ação BEM-SUCEDIDA do guardião que administrou espaço da FRA
+ *  (limpeza, aumento, backup de archives, etc.). Null se não houver. Usado pela tela
+ *  "Recuperação" para reconhecer que um aviso de FRA já foi tratado. */
+function lastManagedEpoch() {
+    for (const e of loadHistory()) { // histórico é mais-recente-primeiro (unshift)
+        if (e && e.ok && MANAGE_KINDS.has(e.kind)) {
+            const t = Date.parse(e.at);
+            if (!Number.isNaN(t)) return t;
+        }
+    }
+    return null;
+}
+
 /** Limpeza de logs: apaga o histórico de ações do guardião. */
 function clearHistory() {
     history = [];
@@ -540,7 +555,7 @@ function start() {
 }
 
 module.exports = {
-    start, tick, summary, checkSchedule, clearHistory, scheduleState: () => state.schedule,
+    start, tick, summary, checkSchedule, clearHistory, lastManagedEpoch, scheduleState: () => state.schedule,
     // puros (testes)
     decide, growAmount, growthRate, parseMeasure, actionRman, MEASURE_SQL, ACTION_LABEL,
 };
